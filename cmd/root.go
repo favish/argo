@@ -5,21 +5,23 @@ import (
 	"os"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/favish/argo/cmd/components"
+	//"github.com/favish/argo/cmd/project"
+	"github.com/favish/argo/cmd/project"
 )
 
 var cfgFile string
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "favish-cloud",
-	Short: "A brief description of your application",
+	Use:   "argo",
+	Short: "Argo allows developers to quickly get started developing and configuring Favish projects.",
 	Long: `
-Favish Cloud installs and configures your local environemnt with
-all of the things you need to develop locally and deploy remotely.
-`,
-// Uncomment the following line if your bare application
-// has an action associated with it:
-//	Run: func(cmd *cobra.Command, args []string) { },
+		Use 'argo components' to install/uninstall sub components and 'argo project' to manipulate projects.
+	`,
+	// Uncomment the following line if your bare application
+	// has an action associated with it:
+	//	Run: func(cmd *cobra.Command, args []string) { },
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
@@ -32,16 +34,20 @@ func Execute() {
 }
 
 func init() {
+
 	cobra.OnInitialize(initConfig)
+
+	RootCmd.AddCommand(components.ComponentsCmd)
+	RootCmd.AddCommand(project.ProjectCmd)
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports Persistent Flags, which, if defined here,
 	// will be global for your application.
 
-	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.favish-cloud.yaml)")
+	//RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.favish-cloud.yaml)")
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
-	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	//RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -50,7 +56,7 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 	}
 
-	viper.SetConfigName(".favish-cloud") // name of config file (without extension)
+	viper.SetConfigName(".argo") // name of config file (without extension)
 	viper.AddConfigPath("$HOME")  // adding home directory as first search path
 	viper.AutomaticEnv()          // read in environment variables that match
 

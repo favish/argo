@@ -15,7 +15,7 @@
 package main
 
 import (
-	"github.com/favish/favish-cloud/cmd"
+	"github.com/favish/argo/cmd"
 )
 
 func main() {
