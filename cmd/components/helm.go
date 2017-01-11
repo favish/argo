@@ -2,7 +2,7 @@ package components
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/favish/argo/cmd/util"
+	"github.com/favish/argo/util"
 )
 
 var helmInstallCmd = &cobra.Command{

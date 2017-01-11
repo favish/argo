@@ -1,4 +1,6 @@
 //* `argo project create PATH --webroot=[OPTIONAL WEB ROOT LOCATION] --sync`
+
+// argo project create --webroot=[optional] --sync=if present run sync command as well
 //- path default to .
 //- path can be repo
 //- if is repo, clone
@@ -16,14 +18,20 @@ package project
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/favish/argo/util"
 )
+
 
 var createCmd = &cobra.Command{
 	Use:   	"create",
 	Short: 	"Create/initialize argo project.",
 	Long: 	`
-		Use either a github repo or a directory containing a github repo (default '.'/$CWD).
-		Creates new kubectl context and sets it to the current active context.
-		Install the chart via helm.
+		Run in directory that contains an .argorc file in a parent directory.
+		Creates a kubernetes context and sets up in kubectl.
+		Installs and configures the correct chart via Helm.
 	`,
+	Run: func(cmd *cobra.Command, args []string) {
+		// Check for an .argorc in this folder
+
+	},
 }
