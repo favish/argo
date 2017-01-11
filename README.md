@@ -31,17 +31,41 @@ Set of tools for manipulating resources in the Google Cloud Platform.
 ## Tasks
  
 * Install some or all of the components ()
-  * `argo install` prompts for each one.
-  * `argo install gcloud` executes and only solicits needed info.
+  * `argo install components ` prompts for each one.
+  * `argo install components gcloud` executes and only solicits needed info.
 
 * Uninstall Components
-  * `argo uninstall`
-  * `argo uninstall gcloud`
+  * `argo uninstall components `
+  * `argo uninstall components gcloud`
    
-* Launch project
-  * `argo launch HELM_NAME`
-  
+project needs argo.rc that has helm chart path/release
+    - argo.rc needs dev/production cluster-name/context-info
+        - enough info to obtain credentials for these clusters and point to the right part of them
+    - mysql location information, credential information
 
-Contexts?
-  
-  
+* Project commands
+  * `argo create PATH --webroot=[OPTIONAL WEB ROOT LOCATION] --sync`
+    - path default to .
+    - path can be repo
+        - if is repo, clone
+        
+    - create a kubernetes context derived from PATH (either cwd, or repo name)
+    - set context to active context
+    
+    - helm install HELM-CHART(from argo.rc)
+    - helm will need to be informed which directory to use to mount the project.
+        - default $PWD/webroot
+    
+    - Notify user infrastructure is complete and they need to run argo sync to update database and files
+        - or sync after if flag is present
+    
+  * `argo sync PATH`
+    - Should grab database and files and insert into running argo infrastructure
+        - warn and exit if not running
+        
+    - Use argo.rc in project to find dev cluster connection information
+        - use kubectl port-forward to route dev/prod mysql to localhost and dump into running argo
+        - same thing for nfs, temp-mount files and transfer over
+    
+    * `argo destroy PATH`
+      - Helm delete
