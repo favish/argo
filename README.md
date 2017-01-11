@@ -1,4 +1,4 @@
-# PEQUOD
+# Argo
 
 ## Example Commands and use cases:
 * New developer getting started with nothing installed.
