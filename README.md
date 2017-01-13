@@ -69,3 +69,8 @@ project needs argo.rc that has helm chart path/release
     
     * `argo project destroy PATH`
       - Helm delete
+      
+## Argo.rc spec
+- Project Name
+- Helm Chart
+- dev cluster connection details
