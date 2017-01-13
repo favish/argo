@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/favish/argo/cmd/components"
-	//"github.com/favish/argo/cmd/project"
 	"github.com/favish/argo/cmd/project"
 )
 
@@ -43,6 +42,8 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports Persistent Flags, which, if defined here,
 	// will be global for your application.
+	RootCmd.PersistentFlags().Bool("debug", false, "Run in debug mode.  Increases stdout verbosity.")
+	viper.BindPFlag("debug", RootCmd.PersistentFlags().Lookup("debug"))
 
 	//RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.favish-cloud.yaml)")
 	// Cobra also supports local flags, which will only run
@@ -56,12 +57,14 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 	}
 
-	viper.SetConfigName(".argo") // name of config file (without extension)
-	viper.AddConfigPath("$HOME")  // adding home directory as first search path
+	viper.SetConfigName("argo") // name of config file (without extension)
+	viper.AddConfigPath(".")  // adding home directory as first search path
 	viper.AutomaticEnv()          // read in environment variables that match
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	} else {
+		viper.Set("noConfig", true)
 	}
 }
