@@ -11,7 +11,7 @@ var gCloudInstallCmd = &cobra.Command{
 	Run: func (cmd *cobra.Command, args []string) {
 		// Install gcloud and kubectl
 		util.InstallBrew("gcloud", "google-cloud-sdk")
-		util.ExecCmd("gcloud", "--no-user-output-enabled", "components", "install", "kubectl")
+		util.ExecCmd("gcloud", "-q", "components", "install", "kubectl")
 
 		// Remove line with 'google-cloud-sdk' and add completions where necessary
 		util.ExecCmd("sed","-i.pre-gcloud.bak", "/Caskroom\\/google-cloud-sdk/,1 d", util.Home + "/.zshrc")
