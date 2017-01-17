@@ -27,33 +27,55 @@ import (
 	"path/filepath"
 	"errors"
 	"github.com/spf13/viper"
+	"bytes"
 )
 
+// Setup flag values that will be bound in init()
+var environment string
+
 var createCmd = &cobra.Command{
-	Use:   	"create",
-	Short: 	"Create/initialize argo project.",
+	Use:   	"deploy",
+	Short: 	"Deploy argo project.",
 	Long: 	`
 		Run in directory that contains an argo configuration file (json/yml).
 		Creates a kubernetes context and sets up in kubectl.
-		Installs and configures the correct chart via Helm.
+		Starts and configures the correct chart via Helm.
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
+
+		if approve := util.GetApproval(fmt.Sprintf("This will create a deployment in the %s environment, are you sure?", environment)); !approve {
+			return
+		}
+
 		name, err := locateProject(args)
 		if err != nil {
 			color.Red("%v", err)
 			return
 		}
+		// TODO - start minikube if it's not running - MEA
 		if exists := checkExisting(name); exists {
 			color.Yellow("Project is already running!  Check helm for a running project.")
 			return
 		}
 		initNamespace(name)
-		helmInstall(name, viper.GetString("chart"), viper.GetString("webroot"))
+
+		if (environment == "local") {
+			setImagePullSecret()
+		}
+
+		if err := helmInstall(name, viper.GetString("chart"), viper.GetString("webroot")); err != nil {
+			color.Red("Error installing chart via helm!  Is minikube running?")
+			return
+		}
 
 		color.Cyan(congratulationsText)
 	},
 }
 
+func init () {
+	createCmd.Flags().StringVarP(&environment, "environment", "e", "local", "Define which environment to apply argo deployment to. Ex: \"local\", \"dev\", or \"prod\".")
+	color.Cyan("Environment is %s", environment)
+}
 
 // Attempt to create or find project
 func locateProject(args []string) (string, error) {
@@ -90,8 +112,7 @@ func locateProject(args []string) (string, error) {
 // Run a check to see if the project already exists in helm
 func checkExisting(name string) bool {
 	projectExists := false
-	out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s | grep 'STATUS: DEPLOYED'", name))
-	if len(out) > 0 {
+	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s | grep 'STATUS: DEPLOYED'", name)); len(out) > 0 {
 		projectExists = true
 	}
 	return projectExists
@@ -107,14 +128,51 @@ func initNamespace(name string) {
 	color.Cyan("Created new %s namespace and kubectl context and set it the active kubectl context.", name)
 }
 
+// Local environments will need to use current developer's gcloud credentials
+func setImagePullSecret() {
+	// Check if secret already exists by grepping stdout and stderr for not found.  if grep returns ok (with output), skip
+	if out, _ := util.ExecCmdChain("kubectl get secret gcr 2>&1 >/dev/null | grep 'not found'"); len(out) <= 0 {
+		return
+	}
+
+	// Get the email address for the active account
+	gcloudConfig := viper.New()
+	gcloudConfig.SetConfigType("yaml")
+	// Use cmd chain to get stdout back
+	output, _ := util.ExecCmdChain("gcloud info --format=yaml")
+	outByte := []byte(output)
+	gcloudConfig.ReadConfig(bytes.NewBuffer(outByte))
+	gcloudEmail := gcloudConfig.GetString("config.account")
+
+	gcloudAccessToken, _, _ := util.ExecCmdOut("gcloud", "auth", "print-access-token")
+
+	if err := util.ExecCmd("kubectl",
+		"create",
+		"secret",
+		"docker-registry",
+		"gcr",
+		"--docker-server=https://gcr.io",
+		"--docker-username=oauth2accesstoken",
+		fmt.Sprintf("--docker-password=%s", gcloudAccessToken),
+		fmt.Sprintf("--docker-email=%s", gcloudEmail)); err != nil {
+		color.Red("%v", err)
+	}
+
+}
+
 // Accept projectname and chart to install project infra via helm
-func helmInstall(projectName string, chart string, webroot string) {
+func helmInstall(projectName string, chart string, webroot string) error {
+	color.Cyan("Installing project chart via helm...")
 	var helmValues []string
 	helmValues = append(helmValues, fmt.Sprintf("namespace=%s", projectName))
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_id=%s", viper.GetString("BLACKFIRE_SERVER_ID")))
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", viper.GetString("BLACKFIRE_SERVER_TOKEN")))
-	helmValues = append(helmValues, fmt.Sprintf("webroot=%s", viper.GetString("webroot")))
-	util.ExecCmd("helm", "install", "--replace", chart, "--name", projectName, "--set", strings.Join(helmValues, ","))
+	if environment == "local" {
+		helmValues = append(helmValues, fmt.Sprintf("blackfire.server_id=%s", viper.GetString("BLACKFIRE_SERVER_ID")))
+		helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", viper.GetString("BLACKFIRE_SERVER_TOKEN")))
+		helmValues = append(helmValues, fmt.Sprintf("persistence.webroot=%s", viper.GetString("persistence.webroot")))
+		helmValues = append(helmValues, fmt.Sprintf("persistence.database=%s", viper.GetString("persistence.database")))
+	}
+	err := util.ExecCmd("helm", "install", "--replace", chart, "--name", projectName, "--set", strings.Join(helmValues, ","))
+	return err
 }
 
 func cloneProject(projectName string, gitRepo string) error {

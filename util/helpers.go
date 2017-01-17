@@ -8,6 +8,7 @@ import (
 	"strings"
 	"github.com/fatih/color"
 	"github.com/spf13/viper"
+	"bytes"
 )
 
 var Home = os.Getenv("HOME")
@@ -43,7 +44,7 @@ func posString(slice []string, element string) int {
 
 func GetApproval (prompt string) bool {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Print(prompt + " [y/N]")
+	color.Yellow(prompt + " [y/N]")
 	text, _ := reader.ReadString('\n')
 	okResponses := []string{"y", "Y", "yes", "Yes", "YES"}
 	return (containsString(okResponses, strings.TrimRight(text, "\n")))
@@ -106,6 +107,20 @@ func ExecCmd(program string, args ...string) (error) {
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
 	return err
+}
+
+// Get stdout/std error from command instead of piping it to os out
+func ExecCmdOut(program string, args ...string) (string, string, error) {
+	var outBuff, errBuff bytes.Buffer
+	if viper.GetBool("debug") {
+		color.Yellow("[debug] - Running '%s %s'", program, strings.Join(args, " "))
+	}
+	cmd := exec.Command(program, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = &outBuff
+	cmd.Stderr = &errBuff
+	err := cmd.Run()
+	return outBuff.String(), errBuff.String(), err
 }
 
 // Using bash -c to pipe several commands, return final output as string
