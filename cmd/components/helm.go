@@ -7,8 +7,16 @@ import (
 
 var helmInstallCmd = &cobra.Command{
 	Use:   "helm",
-	Short: "Installs helm. ",
+	Short: "Install helm.",
 	Run:  func (cmd *cobra.Command, args []string) {
-		util.InstallBrew("helm", "helm")
+		util.BrewInstall("helm", "kubernetes-helm")
+	},
+}
+
+var helmUninstallCmd = &cobra.Command{
+	Use:   "helm",
+	Short: "Uninstall helm.",
+	Run:  func (cmd *cobra.Command, args []string) {
+		util.BrewUninstall("helm", "kubernetes-helm")
 	},
 }

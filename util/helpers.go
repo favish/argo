@@ -12,7 +12,7 @@ import (
 
 var Home = os.Getenv("HOME")
 
-func AppendToFile(filename string, text string) {
+func AppendToFile (filename string, text string) {
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
@@ -25,24 +25,31 @@ func AppendToFile(filename string, text string) {
 	}
 }
 
+// containsString returns true iff slice contains element
+func containsString(slice []string, element string) bool {
+	return !(posString(slice, element) == -1)
+}
+
+// posString returns the first index of element in slice.
+// If slice does not contain element, returns -1.
+func posString(slice []string, element string) int {
+	for index, elem := range slice {
+		if elem == element {
+			return index
+		}
+	}
+	return -1
+}
+
 func GetApproval (prompt string) bool {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print(prompt + " [y/N]")
 	text, _ := reader.ReadString('\n')
-	return ("Y" == strings.TrimRight(text, "\n"))
+	okResponses := []string{"y", "Y", "yes", "Yes", "YES"}
+	return (containsString(okResponses, strings.TrimRight(text, "\n")))
 }
 
-func Brew (operation string, packageName string) {
-	path, err := exec.LookPath("brew")
-	if err != nil {
-		fmt.Printf("Installing %s now via brew...\n", packageName)
-		ExecCmd("brew", operation, packageName)
-	} else {
-		fmt.Printf("%s is available at %s\n", "brew", path)
-	}
-}
-
-func InstallBrew (command string, packageName string) {
+func BrewInstall (command string, packageName string) {
 	path, err := exec.LookPath(command)
 	if err != nil {
 		color.Cyan("Installing %s now via brew...\n", packageName)
@@ -52,7 +59,17 @@ func InstallBrew (command string, packageName string) {
 	}
 }
 
-func InstallBrewCask (command string, packageName string) {
+func BrewUninstall (command string, packageName string) {
+	_, err := exec.LookPath(command)
+	if err == nil {
+		color.Cyan("Uninstalling %s now via brew...\n", packageName)
+		ExecCmd("brew", "uninstall", packageName)
+	} else {
+		color.Yellow("%s doesn't seem to be available.\n", packageName)
+	}
+}
+
+func BrewCaskInstall (command string, packageName string) {
 	path, err := exec.LookPath(command)
 	if err != nil {
 		if (GetApproval("Want to install " + packageName + "?") == true) {
@@ -64,7 +81,18 @@ func InstallBrewCask (command string, packageName string) {
 	}
 }
 
-func AddToZshrc(replaceRegex string, text string) {
+func BrewCaskUninstall (command string, packageName string) {
+	_, err := exec.LookPath(command)
+
+	if err == nil {
+		color.Cyan("Uninstalling %s now via brew cask...\n", packageName)
+		ExecCmd("brew", "cask", "uninstall", packageName)
+	} else {
+		color.Yellow("%s doesn't seem to be available.\n", packageName)
+	}
+}
+
+func AddToZshrc (replaceRegex string, text string) {
 	AppendToFile(Home + "/.zshrc", text)
 }
 

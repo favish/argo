@@ -9,6 +9,14 @@ var virtualBoxInstallCmd = &cobra.Command{
 	Use:   "virtualbox",
 	Short: "Installs virtualbox. ",
 	Run: func (cmd *cobra.Command, args []string) {
-		util.InstallBrewCask("virtualbox", "virtualbox")
+		util.BrewCaskInstall("VBoxManage", "virtualbox")
+	},
+}
+
+var virtualBoxUninstallCmd = &cobra.Command{
+	Use:   "virtualbox",
+	Short: "Installs virtualbox. ",
+	Run: func (cmd *cobra.Command, args []string) {
+		util.BrewCaskUninstall("VBoxManage", "virtualbox")
 	},
 }

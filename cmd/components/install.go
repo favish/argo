@@ -14,6 +14,8 @@ var installCmd = &cobra.Command{
 		virtualBoxInstallCmd.Run(cmd, args)
 		minikubeInstallCmd.Run(cmd, args)
 		helmInstallCmd.Run(cmd, args)
+		kubectlInstallCmd.Run(cmd, args)
+
 		fmt.Println("Argo has successfully installed or verified all components!")
 	},
 }
@@ -23,6 +25,7 @@ func init() {
 	installCmd.AddCommand(virtualBoxInstallCmd)
 	installCmd.AddCommand(minikubeInstallCmd)
 	installCmd.AddCommand(helmInstallCmd)
+	installCmd.AddCommand(kubectlInstallCmd)
 
 	ComponentsCmd.AddCommand(installCmd)
 }
