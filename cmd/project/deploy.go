@@ -50,6 +50,7 @@ var createCmd = &cobra.Command{
 		// TODO - start minikube if it's not running and environment is local - MEA
 
 		if approve := util.GetApproval(fmt.Sprintf("This will create a deployment in the %s environment, are you sure?", environment)); !approve {
+			color.Yellow("Deployment cancelled by user.")
 			return
 		}
 
