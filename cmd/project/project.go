@@ -15,4 +15,5 @@ var ProjectCmd = &cobra.Command{
 func init() {
 	ProjectCmd.AddCommand(createCmd)
 	ProjectCmd.AddCommand(syncCmd)
+	ProjectCmd.AddCommand(deleteCmd)
 }
