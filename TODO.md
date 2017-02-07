@@ -24,3 +24,4 @@
 
 - it should be easier to exec into php
 
+- notify user when update is available
