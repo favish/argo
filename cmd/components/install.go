@@ -2,7 +2,7 @@ package components
 
 import (
 	"github.com/spf13/cobra"
-	"fmt"
+	"github.com/fatih/color"
 )
 
 var installCmd = &cobra.Command{
@@ -15,8 +15,8 @@ var installCmd = &cobra.Command{
 		minikubeInstallCmd.Run(cmd, args)
 		helmInstallCmd.Run(cmd, args)
 		kubectlInstallCmd.Run(cmd, args)
-
-		fmt.Println("Argo has successfully installed or verified all components!")
+		color.Green("Argo has successfully installed or verified all components.")
+		color.Yellow("You may want to run `argo components start` to bootstrap your local environment!")
 	},
 }
 
