@@ -33,7 +33,6 @@ import (
 
 // Setup flag values that will be bound in init()
 var environment string
-var remote string
 
 // TODO - Pull project values into struct here or in config for easier re-use - MEA
 
@@ -223,7 +222,8 @@ func helmInstall(projectName string) error {
 
 		// Do not push or delete if done - MEA
 		// TODO - Set this in argo.yml
-		helmValues = append(helmValues, "persistence.webroot=us.gcr.io/favish-general/drupal-8-webroot:10")
+		appContainer := viper.GetString(fmt.Sprintf("environments.%s.application-container", environment))
+		helmValues = append(helmValues, fmt.Sprintf("persistence.webroot=%s:latest", appContainer))
 	}
 
 	err := util.ExecCmd("helm", "install", "--replace", viper.GetString("chart"), "--name", projectName, "--set", strings.Join(helmValues, ","))
