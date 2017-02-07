@@ -22,6 +22,7 @@ import (
 	"github.com/fatih/color"
 	"os"
 	"github.com/favish/argo/util"
+	"github.com/favish/argo/cmd/components"
 	"fmt"
 	"strings"
 	"path/filepath"
@@ -46,7 +47,15 @@ var createCmd = &cobra.Command{
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
 
-		// TODO - start minikube if it's not running and environment is local - MEA
+		// If minikube is not running, ask user if they'd like us to start it
+		if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0 && environment == "local" {
+			if approve := util.GetApproval("Minikube is not running, would you like to start it?"); approve {
+				components.StartCmd.Run(cmd, args)
+			} else {
+				color.Red("You need to start minikube before deploying a project!")
+				return
+			}
+		}
 
 		if approve := util.GetApproval(fmt.Sprintf("This will create a deployment in the %s environment, are you sure?", environment)); !approve {
 			color.Yellow("Deployment cancelled by user.")
@@ -62,7 +71,7 @@ var createCmd = &cobra.Command{
 		setupKubectl(name, environment)
 
 		if exists := checkExisting(name); exists {
-			color.Yellow("Project is already running!  Check helm for a running project.")
+			color.Yellow("Project is already running!  Check helm/kubernetes for a running project.")
 			return
 		}
 
@@ -75,7 +84,12 @@ var createCmd = &cobra.Command{
 			return
 		}
 
-		color.Cyan(congratulationsText)
+		color.Green("Your project infrastructure has been created on the %s environment!", environment)
+		color.Green("This has bootstrapped a kubernetes environment, normal kubectl commands will allow you to interrogate your new infra.")
+		if (environment == "local") {
+			color.Cyan("For minikube, running `minikube services list` will show your minikube IP and nodeports.  Your services are available through there.")
+		}
+		color.Yellow("If this is your fist time working with this project, use `argo project sync` to obtain databases and files.")
 	},
 }
 
@@ -141,12 +155,13 @@ func setupKubectl(name string, environment string) {
 		color.Cyan("Created new %s kubernetes namespace.", name)
 	}
 
-	// Setup a kubectl context and switch to it
-	util.ExecCmd("kubectl", "config", "delete-context", name)
-	util.ExecCmd("kubectl", "config", "set-context", name, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextUser), fmt.Sprintf("--namespace=%s", name))
-	util.ExecCmd("kubectl", "config", "use-context", name)
-	color.Cyan("Created new %s kubectl context and set to active.", name)
-
+	if approve := util.GetApproval("Gcloud configuration has been updated, would you like to create and switch to a new kubectl context?"); approve {
+		// Setup a kubectl context and switch to it
+		util.ExecCmd("kubectl", "config", "delete-context", name)
+		util.ExecCmd("kubectl", "config", "set-context", name, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextUser), fmt.Sprintf("--namespace=%s", name))
+		util.ExecCmd("kubectl", "config", "use-context", name)
+		color.Cyan("Created new %s kubectl context and set to active.", name)
+	}
 }
 
 // Run a check to see if the project already exists in helm
@@ -248,13 +263,13 @@ func cloneProject(projectName string, gitRepo string) error {
 	return err
 }
 
-var congratulationsText = `
-     .  o ..
-     o . o o.o
-	  ...oo      		CONGRATULATIONS! Your Helm Chart has launched.
-	    __[]__   		The list of services is available with "minikube service list"
-	 __|_o_o_o\__		You may also want to run "argo project sync" to add your database and files.
-	 \""""""""""/
-	  \. ..  . /
-     ^^^^^^^^^^^^^^^^^^^^
-`
+//var congratulationsText = `
+//     .  o ..
+//     o . o o.o
+//	  ...oo      		CONGRATULATIONS! Your Helm Chart has launched.
+//	    __[]__   		The list of services is available with "minikube service list"
+//	 __|_o_o_o\__		You may also want to run "argo project sync" to add your database and files.
+//	 \""""""""""/
+//	  \. ..  . /
+//     ^^^^^^^^^^^^^^^^^^^^
+//`

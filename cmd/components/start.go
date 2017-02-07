@@ -14,7 +14,6 @@ var startCmd = &cobra.Command{
 
 		// Check if minikube is running, and start if it is not.  Oddly `minikube start` does not do this itself - MEA
 		if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0 {
-			color.Yellow("%s", out)
 			if err := util.ExecCmd("minikube", "start"); err != nil {
 				return
 			}
@@ -36,6 +35,9 @@ var startCmd = &cobra.Command{
 		color.Green("You're now ready to start using argo projects!")
 	},
 }
+
+// Export startCmd publicly so other commands can run it
+var StartCmd = startCmd;
 
 func init() {
 	ComponentsCmd.AddCommand(startCmd)
