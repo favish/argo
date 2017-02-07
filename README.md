@@ -1,5 +1,8 @@
 # Argo
 
+## Installation
+`brew install favish/favish/argo`
+
 ## Example Commands and use cases:
 * New developer getting started with nothing installed.
 * Existing developer with a hodgepodge of things installed in different ways (curl, brew, pkg)
