@@ -5,8 +5,13 @@
 - version command
 - argo status, show whats installed
 
-- helm init needs to start
-- php container should be renamed application container, confusing that it has mysql/composer/drush/php
+- Add a -y flag to auto-yes everything
+
+- helm init needs to start, potentially verify helm installation but should be taken care of by `argo components start` now
+
+- Adjust the congratulations text for remote environments
+
+- Warn if no blackfire environment vars are set
 
 - argo should be able to abstract away minikube service list
 
