@@ -30,3 +30,5 @@
 - it should be easier to exec into php
 
 - notify user when update is available
+
+- Move example to deployments, add composer setup for it
