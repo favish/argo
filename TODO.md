@@ -1,3 +1,5 @@
+# DEPRECATED: - todos now managed via JIRA
+
 # Things TODO
 
 - External helm chart for argo.yml
