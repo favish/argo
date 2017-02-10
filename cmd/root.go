@@ -43,7 +43,9 @@ func init() {
 	// Cobra supports Persistent Flags, which, if defined here,
 	// will be global for your application.
 	RootCmd.PersistentFlags().Bool("debug", false, "Run in debug mode.  Increases stdout verbosity.")
+	RootCmd.PersistentFlags().BoolP("auto-yes", "y", false, "Answer yes to all prompts.")
 	viper.BindPFlag("debug", RootCmd.PersistentFlags().Lookup("debug"))
+	viper.BindPFlag("auto-yes", RootCmd.PersistentFlags().Lookup("auto-yes"))
 
 	//RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.favish-cloud.yaml)")
 	// Cobra also supports local flags, which will only run

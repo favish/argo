@@ -13,6 +13,8 @@ import (
 
 var Home = os.Getenv("HOME")
 
+var hiYellow = color.New(color.FgHiYellow);
+
 func AppendToFile (filename string, text string) {
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
@@ -43,11 +45,19 @@ func posString(slice []string, element string) int {
 }
 
 func GetApproval (prompt string) bool {
-	reader := bufio.NewReader(os.Stdin)
-	color.Yellow(prompt + " [y/N]")
-	text, _ := reader.ReadString('\n')
-	okResponses := []string{"y", "Y", "yes", "Yes", "YES"}
-	return (containsString(okResponses, strings.TrimRight(text, "\n")))
+	var yes bool
+	hiYellow.Printf(prompt + " [y/N] ")
+	if skip := viper.GetBool("auto-yes"); skip {
+		yes = skip
+		fmt.Print("y")
+		fmt.Println("")
+	} else {
+		reader := bufio.NewReader(os.Stdin)
+		text, _ := reader.ReadString('\n')
+		okResponses := []string{"y", "Y", "yes", "Yes", "YES"}
+		yes = containsString(okResponses, strings.TrimRight(text, "\n"))
+	}
+	return (yes);
 }
 
 func BrewInstall (command string, packageName string) {
