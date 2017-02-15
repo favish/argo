@@ -7,20 +7,35 @@ import (
 	"github.com/spf13/viper"
 	"github.com/favish/argo/cmd/components"
 	"github.com/favish/argo/cmd/project"
+	"github.com/fatih/color"
 )
 
 var cfgFile string
 
-// RootCmd represents the base command when called without any subcommands
+// version is set on build via -ldflags (ie go build -ldflags "-X cmd.version=0.1" .)
+var Version string
+var Build string
+
 var RootCmd = &cobra.Command{
 	Use:   "argo",
 	Short: "Argo allows developers to quickly get started developing and configuring Favish projects.",
 	Long: `
 		Use 'argo components' to install/uninstall sub components and 'argo project' to manipulate projects.
 	`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
+}
+
+var versionCmd = &cobra.Command{
+	Use:   	"version",
+	Short: 	"Get the current version of argo.",
+	Run: func (cmd *cobra.Command, args []string) {
+		if (len(Version) > 0 && len(Build) > 0) {
+			fmt.Printf("Version: %s \n", Version);
+			fmt.Printf("Build: %s \n", Build);
+		} else {
+			color.Yellow("Are you running argo via `go run ...`?  No version detected from build params!")
+		}
+
+	},
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
@@ -38,6 +53,7 @@ func init() {
 
 	RootCmd.AddCommand(components.ComponentsCmd)
 	RootCmd.AddCommand(project.ProjectCmd)
+	RootCmd.AddCommand(versionCmd)
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports Persistent Flags, which, if defined here,
@@ -65,7 +81,8 @@ func initConfig() {
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
+		// TODO - Set which config file is used if it becomes necessary and only log it when needed (argo project commands) - MEA
+		//fmt.Println("Using config file:", viper.ConfigFileUsed())
 	} else {
 		viper.Set("noConfig", true)
 	}
