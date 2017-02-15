@@ -5,11 +5,11 @@
 
 ## Example Commands and use cases:
 ### Starting from scratch to get a functional environment:
-`argo components install && argo components start`
+`argo components install && argo components start`  
 Install will acquire all required binaries locally, start will make sure your local services are up and running.
 
 ### Spin up project infrastructure locally
-`argo project deploy`
+`argo project deploy`  
 Creates all kubernetes services required to run the project in the cwd.
 
 ## Components
