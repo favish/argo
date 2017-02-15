@@ -46,6 +46,11 @@ var createCmd = &cobra.Command{
 		Starts and configures the correct chart via Helm.
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if blackfire := viper.GetString("BLACKFIRE_SERVER_ID"); len(blackfire) <= 0 {
+			c := color.New(color.FgHiYellow).Add(color.Bold)
+			c.Println("Warning: You do not have blackfire credentials stored in your environment! You will not be able to use blackfire until you add them!")
+			c.Println("To add them easily, copy the export lines from https://blackfire.io/docs/integrations/docker (server are likely all you'll use) and add them to your ~/.zshrc \n")
+		}
 
 		// If minikube is not running, ask user if they'd like us to start it
 		if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0 && environment == "local" {
