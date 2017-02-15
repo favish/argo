@@ -5,13 +5,12 @@
 
 ## Example Commands and use cases:
 ### Starting from scratch to get a functional environment:
-`argo components install`
+`argo components install && argo components start`
+Install will acquire all required binaries locally, start will make sure your local services are up and running.
 
-### Creating a new project
-`argo TODO`
-
-### Deploying it to your local kubernetes instance
-`argo TODO`
+### Spin up project infrastructure locally
+`argo project deploy`
+Creates all kubernetes services required to run the project in the cwd.
 
 ## Components
 * [Docker](https://www.docker.com/what-docker) - Allows you to run a single process like nginx in an isolated environment with very little overhead.
@@ -23,7 +22,8 @@
 
 
 ## Tasks
- 
+### Effectively TODO, ideal final tree of commands.  Not entirely implemented.
+
 * Install some or all of the components ()
   * `argo components install` prompts for each one.
   * `argo components install gcloud` executes and only solicits needed info.
