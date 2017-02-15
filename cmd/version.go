@@ -7,6 +7,7 @@ import (
 )
 
 // version is set on build via -ldflags (ie go build -ldflags "-X cmd.version=0.1" .)
+// strategy from http://stackoverflow.com/questions/11354518/golang-application-auto-build-versioning
 var Version string
 var Build string
 
@@ -20,6 +21,5 @@ var versionCmd = &cobra.Command{
 	} else {
 	color.Yellow("Are you running argo via `go run ...`?  No version detected from build params!")
 	}
-
 	},
 }
