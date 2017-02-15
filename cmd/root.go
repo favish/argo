@@ -7,14 +7,9 @@ import (
 	"github.com/spf13/viper"
 	"github.com/favish/argo/cmd/components"
 	"github.com/favish/argo/cmd/project"
-	"github.com/fatih/color"
 )
 
 var cfgFile string
-
-// version is set on build via -ldflags (ie go build -ldflags "-X cmd.version=0.1" .)
-var Version string
-var Build string
 
 var RootCmd = &cobra.Command{
 	Use:   "argo",
@@ -22,20 +17,6 @@ var RootCmd = &cobra.Command{
 	Long: `
 		Use 'argo components' to install/uninstall sub components and 'argo project' to manipulate projects.
 	`,
-}
-
-var versionCmd = &cobra.Command{
-	Use:   	"version",
-	Short: 	"Get the current version of argo.",
-	Run: func (cmd *cobra.Command, args []string) {
-		if (len(Version) > 0 && len(Build) > 0) {
-			fmt.Printf("Version: %s \n", Version);
-			fmt.Printf("Build: %s \n", Build);
-		} else {
-			color.Yellow("Are you running argo via `go run ...`?  No version detected from build params!")
-		}
-
-	},
 }
 
 // Execute adds all child commands to the root command sets flags appropriately.
@@ -51,9 +32,10 @@ func init() {
 
 	cobra.OnInitialize(initConfig)
 
+	RootCmd.AddCommand(versionCmd)
+
 	RootCmd.AddCommand(components.ComponentsCmd)
 	RootCmd.AddCommand(project.ProjectCmd)
-	RootCmd.AddCommand(versionCmd)
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports Persistent Flags, which, if defined here,
