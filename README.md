@@ -4,7 +4,7 @@
 `brew install favish/favish/argo`
 
 ## Example Commands and use cases:
-### Starting from scratch to get a functional environment:
+### Starting from scratch to get a functional environment
 `argo components install && argo components start`  
 Install will acquire all required binaries locally, start will make sure your local services are up and running.
 
