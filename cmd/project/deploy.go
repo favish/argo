@@ -23,11 +23,9 @@ import (
 	"os"
 	"github.com/favish/argo/util"
 	"fmt"
-	"strings"
 	"errors"
 	"github.com/spf13/viper"
 	"bytes"
-	"path"
 )
 
 // TODO - Pull project values into struct here or in config for easier re-use - MEA
@@ -64,7 +62,7 @@ var createCmd = &cobra.Command{
 			setImagePullSecret()
 		}
 
-		if err := helmInstall(name); err != nil {
+		if err := helmUpgrade(name); err != nil {
 			color.Red("Error installing chart via helm!")
 			return
 		}
@@ -129,54 +127,6 @@ func setImagePullSecret() {
 		color.Red("%v", err)
 	}
 
-}
-
-// Accept projectname and chart to install project infra via helm
-func helmInstall(projectName string) error {
-
-	color.Cyan("Installing project chart via helm...")
-
-	var helmValues []string
-
-	helmValues = append(helmValues, fmt.Sprintf("namespace=%s", projectName))
-	helmValues = append(helmValues, fmt.Sprintf("environment_type=%s", environment))
-
-	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_id=%s", viper.GetString("BLACKFIRE_SERVER_ID")))
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", viper.GetString("BLACKFIRE_SERVER_TOKEN")))
-
-	helmValues = append(helmValues, fmt.Sprintf("php_image=%s", viper.GetString("php-image")))
-	helmValues = append(helmValues, fmt.Sprintf("nginx_image=%s", viper.GetString("nginx-image")))
-	helmValues = append(helmValues, fmt.Sprintf("web_image=%s", viper.GetString("web-image")))
-
-	if environment == "local" {
-		helmValues = append(helmValues, fmt.Sprintf("local.webroot=%s", path.Join(viper.GetString("PWD"), viper.GetString("environments.local.webroot"))))
-		helmValues = append(helmValues, fmt.Sprintf("local.project_root=%s", viper.GetString("PWD")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", viper.GetString("environments.local.mysql.db")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.pass=%s", viper.GetString("environments.local.mysql.pass")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.user=%s", viper.GetString("environments.local.mysql.user")))
-	} else {
-		project := viper.GetString(fmt.Sprintf("environments.%s.project", environment))
-		computeZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
-		instance := viper.GetString(fmt.Sprintf("environments.%s.mysql.instance", environment))
-
-		database := viper.GetString(fmt.Sprintf("environments.%s.mysql.db", environment))
-
-		mysqlInstance := fmt.Sprintf("%s:%s:%s", project, computeZone, instance)
-
-		helmValues = append(helmValues, fmt.Sprintf("mysql.instance=%s", mysqlInstance))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", database))
-
-		appImage := viper.GetString(fmt.Sprintf("environments.%s.application-image", environment))
-		helmValues = append(helmValues, fmt.Sprintf("application.image=%s", appImage))
-	}
-
-	command := fmt.Sprintf("helm install --replace %s --name %s --set %s", viper.GetString("chart"), projectName, strings.Join(helmValues, ","))
-	out, err := util.ExecCmdChainCombinedOut(command)
-	if (err != nil) {
-		color.Red(out)
-	}
-	return err
 }
 
 func cloneProject(projectName string, gitRepo string) error {

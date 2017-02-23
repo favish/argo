@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/spf13/cobra"
 	"github.com/fatih/color"
+	"runtime"
 )
 
 // version is set on build via -ldflags (ie go build -ldflags "-X cmd.version=0.1" .)
@@ -18,6 +19,7 @@ var versionCmd = &cobra.Command{
 	if (len(Version) > 0 && len(Build) > 0) {
 	fmt.Printf("Version: %s \n", Version);
 	fmt.Printf("Build: %s \n", Build);
+	fmt.Printf("GOOS: %s, GOARCH=%s", runtime.GOOS, runtime.GOARCH)
 	} else {
 	color.Yellow("Are you running argo via `go run ...`?  No version detected from build params!")
 	}
