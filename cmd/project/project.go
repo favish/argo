@@ -172,11 +172,11 @@ func helmUpgrade(projectName string) error {
 		helmValues = append(helmValues, fmt.Sprintf("application.image=%s", appImage))
 	}
 
-	command := fmt.Sprintf("helm upgrade --dry-run --debug --install %s %s --set %s", projectName, viper.GetString("chart"), strings.Join(helmValues, ","))
+	command := fmt.Sprintf("helm upgrade --debug --install %s %s --set %s", projectName, viper.GetString("chart"), strings.Join(helmValues, ","))
 	out, err := util.ExecCmdChainCombinedOut(command)
 	if (err != nil) {
 		color.Red(out)
-	} else {
+	} else if debugMode := viper.GetString("debug"); len(debugMode) > 0 {
 		color.Green(out)
 	}
 	return err
