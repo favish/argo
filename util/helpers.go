@@ -142,6 +142,16 @@ func ExecCmdChain(command string) (string, error){
 	return string(out), err
 }
 
+// Using bash -c to pipe several commands, return final output as string
+// Returns stderr and stdout in output
+func ExecCmdChainCombinedOut(command string) (string, error){
+	if viper.GetBool("debug") {
+		color.Yellow("[debug] - Running commands %s through bash", command)
+	}
+	out, err := exec.Command("bash", "-c", command).CombinedOutput()
+	return string(out), err
+}
+
 func DirectoryExists(dirName string) bool {
 	fileInfo, err := os.Stat(dirName)
 	if err == nil && fileInfo.IsDir() {

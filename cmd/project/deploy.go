@@ -93,6 +93,7 @@ func checkExisting(name string) bool {
 	color.Cyan("Ensuring existing helm project does not exist...")
 	projectExists := false
 	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s | grep 'STATUS: DEPLOYED'", name)); len(out) > 0 {
+		color.Yellow(out)
 		projectExists = true
 	}
 	return projectExists
@@ -146,6 +147,7 @@ func helmInstall(projectName string) error {
 
 	helmValues = append(helmValues, fmt.Sprintf("php_image=%s", viper.GetString("php-image")))
 	helmValues = append(helmValues, fmt.Sprintf("nginx_image=%s", viper.GetString("nginx-image")))
+	helmValues = append(helmValues, fmt.Sprintf("web_image=%s", viper.GetString("web-image")))
 
 	if environment == "local" {
 		helmValues = append(helmValues, fmt.Sprintf("local.webroot=%s", path.Join(viper.GetString("PWD"), viper.GetString("environments.local.webroot"))))
@@ -165,15 +167,15 @@ func helmInstall(projectName string) error {
 		helmValues = append(helmValues, fmt.Sprintf("mysql.instance=%s", mysqlInstance))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", database))
 
-		// Do not push or delete if done - MEA
-		// TODO - Set this in argo.yml
-		appContainer := viper.GetString(fmt.Sprintf("environments.%s.application-container", environment))
-		helmValues = append(helmValues, fmt.Sprintf("application.image=%s:latest", appContainer))
+		appImage := viper.GetString(fmt.Sprintf("environments.%s.application-image", environment))
+		helmValues = append(helmValues, fmt.Sprintf("application.image=%s", appImage))
 	}
 
-	// TODO - Currently piping helm output to /dev/null to make output more manageable, should output stdout if --debug flag is provided - MEA
-	command := fmt.Sprintf("helm install --replace %s --name %s --set %s > /dev/null 2>&1", viper.GetString("chart"), projectName, strings.Join(helmValues, ","))
-	_, err := util.ExecCmdChain(command)
+	command := fmt.Sprintf("helm install --replace %s --name %s --set %s", viper.GetString("chart"), projectName, strings.Join(helmValues, ","))
+	out, err := util.ExecCmdChainCombinedOut(command)
+	if (err != nil) {
+		color.Red(out)
+	}
 	return err
 }
 
