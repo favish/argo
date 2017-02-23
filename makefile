@@ -5,7 +5,7 @@ LDFLAGS=-ldflags "-X github.com/favish/argo/cmd.Version=${VERSION} -X github.com
 
 build:
 	go build ${LDFLAGS} -o argo
-	GOOS=linux GOARCH=arm GOARM=7 go build ${LDFLAGS} -o argo-nix
+	env GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o argo-nix
 
 clean:
 	if [ -f argo ] ; then rm argo; fi
