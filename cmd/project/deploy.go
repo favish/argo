@@ -40,14 +40,10 @@ var createCmd = &cobra.Command{
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
 
+		var name = ProjectName
+
 		if approve := util.GetApproval(fmt.Sprintf("This will create a deployment in the %s environment, are you sure?", environment)); !approve {
 			color.Yellow("Deployment cancelled by user.")
-			return
-		}
-
-		name, err := locateProject(args)
-		if err != nil {
-			color.Red("%v", err)
 			return
 		}
 
@@ -60,6 +56,7 @@ var createCmd = &cobra.Command{
 
 		if (environment == "local") {
 			setImagePullSecret()
+			addEtcHosts(name)
 		}
 
 		if err := helmUpgrade(name); err != nil {
@@ -77,11 +74,11 @@ o . o o.o
   \. ..  . /
 ^^^^^^^^^^^^^^^^^^^^
 		`)
+		if (environment == "local") {
+			color.Cyan("Local site available at: http://local.%s.com \n \n", name)
+		}
 		color.Green("Your project infrastructure has been created on the %s environment!", environment)
 		color.Green("This has bootstrapped a kubernetes environment, normal kubectl commands will allow you to interrogate your new infra.")
-		if (environment == "local") {
-			color.Cyan("For minikube, running `minikube service list` will show your minikube IP and nodeports.  Your services are available through there.")
-		}
 		color.Yellow("If this is your fist time working with this project, use `argo project sync` to obtain databases and files.")
 	},
 }
@@ -145,4 +142,16 @@ func cloneProject(projectName string, gitRepo string) error {
 	}
 
 	return err
+}
+
+// Add or update an entry to access this project locally into /etc/hosts
+func addEtcHosts(projectName string) {
+
+	color.Yellow("Adding/updating entry to /etc/hosts.  Will require sudo permissions...")
+	localAddress := fmt.Sprintf("local.%s.com", projectName)
+
+	util.ExecCmdChain(fmt.Sprintf("sudo sed --in-place '/%s/d' /etc/hosts", localAddress))
+
+	util.ExecCmdChain(fmt.Sprintf("echo \"$(minikube ip) %s\" | sudo tee -a /etc/hosts", localAddress))
+
 }
