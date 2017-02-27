@@ -14,6 +14,10 @@ import (
 	"path"
 )
 
+// Shared vars, package-wide scoped
+var environment string
+var ProjectName string
+
 var ProjectCmd = &cobra.Command{
 	Use:   "project",
 	Short: "Manage individual argo projects.",
@@ -21,6 +25,8 @@ var ProjectCmd = &cobra.Command{
 
 	// Run before every child command executes run
 	PersistentPreRun: func (cmd *cobra.Command, args []string) {
+
+		ProjectName = viper.GetString("project-name");
 
 		// Warn if blackfire environment not setup
 		if blackFire := viper.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
@@ -41,12 +47,11 @@ var ProjectCmd = &cobra.Command{
 	},
 }
 
-var environment string
 func init() {
 	ProjectCmd.AddCommand(createCmd)
 	ProjectCmd.AddCommand(syncCmd)
 	ProjectCmd.AddCommand(deleteCmd)
-	ProjectCmd.AddCommand(setCmd)
+	ProjectCmd.AddCommand(setEnvCmd)
 	ProjectCmd.AddCommand(updateCmd)
 	ProjectCmd.PersistentFlags().StringVarP(&environment, "environment", "e", "local", "Define which environment to apply argo commands to. Ex: \"local\", \"dev\", or \"prod\".")
 	viper.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
@@ -55,38 +60,40 @@ func init() {
 // Shared functions
 
 // Attempt to create or find project
+// Sets Project-scoped ProjectName variable, and returns it as well
+// TODO - Total refactor here.  Project name now set in yaml, this should just check for a valid project.
 func locateProject(args []string) (string, error) {
 	if hardSetName := viper.GetString("project-name"); len(hardSetName) > 0 {
+		ProjectName = hardSetName
 		return hardSetName, nil
 	}
-	var projectName string
 	var err error
 	// If args are provided, use them
 	// Otherwise try to find an argo config in the current directory
 	if (len(args) > 0) {
 		validRepo := strings.Split(args[0], "/")
 		if (len(validRepo) != 2) {
-			return projectName, errors.New("Invalid git repo provided as argument, make sure it follows pattern 'organization/reponame'!")
+			return "", errors.New("Invalid git repo provided as argument, make sure it follows pattern 'organization/reponame'!")
 		} else {
-			projectName = validRepo[1]
+			ProjectName = validRepo[1]
 			// Return error without attempting to clone if directory exists
-			if exists := util.DirectoryExists(projectName); exists {
-				return projectName, errors.New("Folder matching git project name exists.  Please re-run this command from that directory.")
+			if exists := util.DirectoryExists(ProjectName); exists {
+				return "", errors.New("Folder matching git project name exists.  Please re-run this command from that directory.")
 			}
-			err = cloneProject(projectName, args[0])
+			err = cloneProject("", args[0])
 		}
 	} else {
 		// Check for presence of argoyml
 		noConfig := viper.GetBool("noConfig")
 		if noConfig {
-			return projectName, errors.New("No argo configuration file found!  Please re-run this command in a project with an argo configuration file in it's root, or specifiy a git repo to clone.")
+			return ProjectName, errors.New("No argo configuration file found!  Please re-run this command in a project with an argo configuration file in it's root, or specifiy a git repo to clone.")
 		} else {
 			cwdPath, _ := os.Getwd()
-			projectName = filepath.Base(cwdPath)
-			color.Cyan("Reading project %s from argo config file...", projectName)
+			ProjectName = filepath.Base(cwdPath)
+			color.Cyan("Reading project %s from argo config file...", ProjectName)
 		}
 	}
-	return projectName, err
+	return ProjectName, err
 }
 
 // Update context/project/etc to match environment
@@ -139,6 +146,7 @@ func helmUpgrade(projectName string) error {
 	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", viper.GetString("BLACKFIRE_SERVER_TOKEN")))
 
 	helmValues = append(helmValues, fmt.Sprintf("php_image=%s", viper.GetString("php-image")))
+	helmValues = append(helmValues, fmt.Sprintf("php_xdebug_image=%s", viper.GetString("php-xdebug-image")))
 	helmValues = append(helmValues, fmt.Sprintf("nginx_image=%s", viper.GetString("nginx-image")))
 	helmValues = append(helmValues, fmt.Sprintf("web_image=%s", viper.GetString("web-image")))
 
@@ -148,6 +156,8 @@ func helmUpgrade(projectName string) error {
 		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", viper.GetString("environments.local.mysql.db")))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.pass=%s", viper.GetString("environments.local.mysql.pass")))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.user=%s", viper.GetString("environments.local.mysql.user")))
+		localIp, _ := util.ExecCmdChain("ifconfig | grep \"inet \" | grep -v 127.0.0.1 | awk '{print $2}' | sed -n 1p")
+		helmValues = append(helmValues, fmt.Sprintf("local.host_ip=%s", localIp))
 	} else {
 		project := viper.GetString(fmt.Sprintf("environments.%s.project", environment))
 		computeZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
@@ -161,7 +171,6 @@ func helmUpgrade(projectName string) error {
 		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", database))
 
 		appImage := viper.GetString(fmt.Sprintf("environments.%s.application-image", environment))
-
 		// Push using latest tag or CIRCLE_SHA1 if running in circle environment/is otherwise provided.
 		if circleSha := viper.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {
 			appImage = fmt.Sprintf("%s:%s", appImage, circleSha)
@@ -172,7 +181,11 @@ func helmUpgrade(projectName string) error {
 		helmValues = append(helmValues, fmt.Sprintf("application.image=%s", appImage))
 	}
 
-	command := fmt.Sprintf("helm upgrade --debug --install %s %s --set %s", projectName, viper.GetString("chart"), strings.Join(helmValues, ","))
+	if environment == "dev" {
+		helmValues = append(helmValues, fmt.Sprintf("dev.basic_auth=%s", viper.GetString("environments.dev.basic-auth")))
+	}
+
+	command := fmt.Sprintf("helm upgrade --install %s %s --set %s", projectName, viper.GetString("chart"), strings.Join(helmValues, ","))
 	out, err := util.ExecCmdChainCombinedOut(command)
 	if (err != nil) {
 		color.Red(out)

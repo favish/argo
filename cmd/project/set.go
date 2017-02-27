@@ -5,8 +5,8 @@ import (
 	"github.com/fatih/color"
 )
 
-var setCmd = &cobra.Command{
-	Use:   	"set",
+var setEnvCmd = &cobra.Command{
+	Use:   	"set-env",
 	Short: 	"Set your local environment to use this project.",
 	Long: 	`
 		Run in directory that contains an argo configuration file (json/yml).
