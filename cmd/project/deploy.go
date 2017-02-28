@@ -42,8 +42,7 @@ var createCmd = &cobra.Command{
 		}
 
 		if exists := checkExisting(); exists {
-			color.Yellow("Project is already running!  Check helm/kubernetes for a running project.")
-			return
+			color.Yellow("Project is already running!  Check helm/kubernetes for a running project.  If you want to update this, run `argo project update` instead")
 		}
 
 		if (projectConfig.GetString("environment") == "local") {

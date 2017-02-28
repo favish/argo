@@ -20,6 +20,8 @@ var ProjectCmd = &cobra.Command{
 	// Run before every child command executes run
 	PersistentPreRun: func (cmd *cobra.Command, args []string) {
 
+		initProjectConfig()
+
 		projectName := projectConfig.GetString("project-name");
 		if len(projectName) == 0 {
 			color.Red("You need to specify a project name in argo.yml!")
@@ -47,9 +49,13 @@ var ProjectCmd = &cobra.Command{
 	},
 }
 
+// Entire package will use projectConfig viper instance
+var projectConfig = viper.New()
+
 func init() {
-	cobra.OnInitialize(initProjectConfig)
 	ProjectCmd.PersistentFlags().StringP("environment", "e", "local", "Define which environment to apply argo commands to. Ex: \"local\", \"dev\", or \"prod\".")
+	projectConfig.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
+
 	ProjectCmd.AddCommand(createCmd)
 	ProjectCmd.AddCommand(syncCmd)
 	ProjectCmd.AddCommand(deleteCmd)
@@ -57,10 +63,7 @@ func init() {
 	ProjectCmd.AddCommand(updateCmd)
 }
 
-// Entire package will use projectConfig viper instance
-var projectConfig = viper.New()
 func initProjectConfig() {
-	projectConfig.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
 	projectConfig.SetConfigName("argo") 	// Name of config file (without extension)
 	projectConfig.AddConfigPath(".")  	// Current directory
 	// TODO - Perhaps only provide access to environment variables in a global viper object - MEA
@@ -80,9 +83,9 @@ func initKubectlConfig() {
 	projectName := projectConfig.GetString("project-name");
 	environment := projectConfig.GetString("environment");
 
-	var contextName string
+	var contextCluster string
 	if environment == "local" {
-		contextName = "minikube"
+		contextCluster = "minikube"
 	} else {
 		// Add aliases to access in later commands
 		projectConfig.RegisterAlias("gcloudProject", fmt.Sprintf("environments.%s.project", environment))
@@ -101,7 +104,7 @@ func initKubectlConfig() {
 			os.Exit(1)
 		}
 
-		contextName = fmt.Sprintf(projectConfig.GetString("gcloudProject"), projectConfig.GetString("gcloudZone"), projectConfig.GetString("gcloudCluster"))
+		contextCluster = fmt.Sprintf("gke_%s_%s_%s", projectConfig.GetString("gcloudProject"), projectConfig.GetString("gcloudZone"), projectConfig.GetString("gcloudCluster"))
 	}
 
 	// If the namespace does not exist, create one.
@@ -110,13 +113,15 @@ func initKubectlConfig() {
 		color.Cyan("Created new %s kubernetes namespace.", projectName)
 	}
 
-	if approve := util.GetApproval("Would you like to (re)create and switch to a new kubectl context for this project?"); approve {
-		// Setup a kubectl context and switch to it
-		util.ExecCmd("kubectl", "config", "delete-context", projectName)
-		util.ExecCmd("kubectl", "config", "set-context", projectName, fmt.Sprintf("--cluster=%s", contextName), fmt.Sprintf("--user=%s", contextName), fmt.Sprintf("--namespace=%s", projectName))
-		util.ExecCmd("kubectl", "config", "use-context", projectName)
-		color.Cyan("Created new %s kubectl context and set to active.", projectName)
-	}
+	color.Cyan("Recreating kubectl context and setting to active...")
+
+	contextName := fmt.Sprintf("%s-%s", projectName, environment)
+	// Setup a kubectl context and switch to it
+	util.ExecCmd("kubectl", "config", "delete-context", contextName)
+	util.ExecCmd("kubectl", "config", "set-context", contextName, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextCluster), fmt.Sprintf("--namespace=%s", projectName))
+	util.ExecCmd("kubectl", "config", "use-context", contextName)
+	color.Cyan("Created new %s kubectl context and set to active.", contextName)
+
 }
 
 // Run a check to see if the project already exists in helm
