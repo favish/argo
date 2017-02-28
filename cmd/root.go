@@ -52,6 +52,8 @@ func init() {
 }
 
 // initConfig reads in config file and ENV variables if set.
+// TODO - Global argo configuration - MEA
+// TODO - Configuration for projects now set in ProjectCmd to a scoped viper instance.  This master instance no longer used
 func initConfig() {
 	if cfgFile != "" { // enable ability to specify config file via flag
 		viper.SetConfigFile(cfgFile)

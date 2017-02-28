@@ -14,13 +14,8 @@ var setEnvCmd = &cobra.Command{
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
 
-		name, err := locateProject(args)
-		if err != nil {
-			color.Red("%v", err)
-			return
-		}
-
-		setupKubectl(name, environment, true)
+		// Every project command sets up the local environment
+		// TODO - Make this create kubectl/gcloud configuration contexts and activate them for usage outside of argo
 
 		color.Green("Environment set to this project.  You can now use kubectl normally to access this infrastructure.")
 	},

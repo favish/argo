@@ -7,16 +7,10 @@ import (
 	"github.com/favish/argo/util"
 	"github.com/favish/argo/cmd/components"
 	"os"
-	"path/filepath"
 	"strings"
-	"errors"
 	"fmt"
 	"path"
 )
-
-// Shared vars, package-wide scoped
-var environment string
-var ProjectName string
 
 var ProjectCmd = &cobra.Command{
 	Use:   "project",
@@ -26,17 +20,23 @@ var ProjectCmd = &cobra.Command{
 	// Run before every child command executes run
 	PersistentPreRun: func (cmd *cobra.Command, args []string) {
 
-		ProjectName = viper.GetString("project-name");
+		projectName := projectConfig.GetString("project-name");
+		if len(projectName) == 0 {
+			color.Red("You need to specify a project name in argo.yml!")
+			os.Exit(1)
+		}
+
+		initKubectlConfig()
 
 		// Warn if blackfire environment not setup
-		if blackFire := viper.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
+		if blackFire := projectConfig.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
 			c := color.New(color.FgHiYellow).Add(color.Bold)
 			c.Println("Warning: You do not have blackfire credentials stored in your environment! You will not be able to use blackfire until you add them!")
 			c.Println("To add them easily, copy the export lines from https://blackfire.io/docs/integrations/docker (server are likely all you'll use) and add them to your ~/.zshrc \n")
 		}
 
 		// If minikube is not running and local environment is selected, ask user if they'd like us to start it
-		if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0 && environment == "local" {
+		if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0 && projectConfig.GetString("environment") == "local" {
 			if approve := util.GetApproval("Minikube is not running, would you like to start it?"); approve {
 				components.StartCmd.Run(cmd, args)
 			} else {
@@ -48,91 +48,94 @@ var ProjectCmd = &cobra.Command{
 }
 
 func init() {
+	cobra.OnInitialize(initProjectConfig)
+	ProjectCmd.PersistentFlags().StringP("environment", "e", "local", "Define which environment to apply argo commands to. Ex: \"local\", \"dev\", or \"prod\".")
 	ProjectCmd.AddCommand(createCmd)
 	ProjectCmd.AddCommand(syncCmd)
 	ProjectCmd.AddCommand(deleteCmd)
 	ProjectCmd.AddCommand(setEnvCmd)
 	ProjectCmd.AddCommand(updateCmd)
-	ProjectCmd.PersistentFlags().StringVarP(&environment, "environment", "e", "local", "Define which environment to apply argo commands to. Ex: \"local\", \"dev\", or \"prod\".")
-	viper.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
 }
 
-// Shared functions
+// Entire package will use projectConfig viper instance
+var projectConfig = viper.New()
+func initProjectConfig() {
+	projectConfig.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
+	projectConfig.SetConfigName("argo") 	// Name of config file (without extension)
+	projectConfig.AddConfigPath(".")  	// Current directory
+	// TODO - Perhaps only provide access to environment variables in a global viper object - MEA
+	projectConfig.AutomaticEnv()
 
-// Attempt to create or find project
-// Sets Project-scoped ProjectName variable, and returns it as well
-// TODO - Total refactor here.  Project name now set in yaml, this should just check for a valid project.
-func locateProject(args []string) (string, error) {
-	if hardSetName := viper.GetString("project-name"); len(hardSetName) > 0 {
-		ProjectName = hardSetName
-		return hardSetName, nil
+	// Error if no yaml found
+	if err := projectConfig.ReadInConfig(); err != nil {
+		color.Red("%s",err)
+		color.Red("No project argo.yml found in this directory!")
+		os.Exit(1)
 	}
-	var err error
-	// If args are provided, use them
-	// Otherwise try to find an argo config in the current directory
-	if (len(args) > 0) {
-		validRepo := strings.Split(args[0], "/")
-		if (len(validRepo) != 2) {
-			return "", errors.New("Invalid git repo provided as argument, make sure it follows pattern 'organization/reponame'!")
-		} else {
-			ProjectName = validRepo[1]
-			// Return error without attempting to clone if directory exists
-			if exists := util.DirectoryExists(ProjectName); exists {
-				return "", errors.New("Folder matching git project name exists.  Please re-run this command from that directory.")
-			}
-			err = cloneProject("", args[0])
-		}
+}
+
+
+// Setup values to use for gcloud and kubectl commands
+func initKubectlConfig() {
+	projectName := projectConfig.GetString("project-name");
+	environment := projectConfig.GetString("environment");
+
+	var contextName string
+	if environment == "local" {
+		contextName = "minikube"
 	} else {
-		// Check for presence of argoyml
-		noConfig := viper.GetBool("noConfig")
-		if noConfig {
-			return ProjectName, errors.New("No argo configuration file found!  Please re-run this command in a project with an argo configuration file in it's root, or specifiy a git repo to clone.")
-		} else {
-			cwdPath, _ := os.Getwd()
-			ProjectName = filepath.Base(cwdPath)
-			color.Cyan("Reading project %s from argo config file...", ProjectName)
+		// Add aliases to access in later commands
+		projectConfig.RegisterAlias("gcloudProject", fmt.Sprintf("environments.%s.project", environment))
+		projectConfig.RegisterAlias("gcloudZone", fmt.Sprintf("environments.%s.compute-zone", environment))
+		projectConfig.RegisterAlias("gcloudCluster", fmt.Sprintf("environments.%s.cluster", environment))
+
+		if err := util.ExecCmd("gcloud",
+				"container",
+				"clusters",
+				"get-credentials",
+				projectConfig.GetString("gcloudCluster"),
+				fmt.Sprintf("--project=%s", projectConfig.GetString("gcloudProject")),
+				fmt.Sprintf("--zone=%s", projectConfig.GetString("gcloudZone")),
+			); err != nil {
+			color.Red("Error getting kubectl cluster credentials via gcloud! %s", err)
+			os.Exit(1)
 		}
-	}
-	return ProjectName, err
-}
 
-// Update context/project/etc to match environment
-func setupKubectl(name string, environment string, set bool) {
-	// These are both the same in both remote and local
-	contextCluster := "minikube"
-	contextUser := "minikube"
-	if environment != "local" {
-		// TODO - validate argo.yml environments - MEA
-		project := viper.GetString(fmt.Sprintf("environments.%s.project", environment))
-		computeZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
-		cluster := viper.GetString(fmt.Sprintf("environments.%s.cluster", environment))
-		color.Cyan("Updating gcloud to use %s-%s cluster credentials...", name, environment)
-		util.ExecCmd("gcloud", "config", "set", "project", project)
-		util.ExecCmd("gcloud", "config", "set", "compute/zone", computeZone)
-		util.ExecCmd("gcloud", "container", "clusters", "get-credentials", cluster)
-
-		contextCluster = fmt.Sprintf("gke_%s_%s_%s", project, computeZone, cluster)
-		contextUser = fmt.Sprintf("gke_%s_%s_%s", project, computeZone, cluster)
+		contextName = fmt.Sprintf(projectConfig.GetString("gcloudProject"), projectConfig.GetString("gcloudZone"), projectConfig.GetString("gcloudCluster"))
 	}
 
 	// If the namespace does not exist, create one.
-	if err := util.ExecCmd("kubectl", "get", "namespace", name); err != nil {
-		util.ExecCmd("kubectl", "create", "namespace", name)
-		color.Cyan("Created new %s kubernetes namespace.", name)
+	if err := util.ExecCmd("kubectl", "get", "namespace", projectName); err != nil {
+		util.ExecCmd("kubectl", "create", "namespace", projectName)
+		color.Cyan("Created new %s kubernetes namespace.", projectName)
 	}
 
-	approve := set || util.GetApproval("Gcloud configuration has been updated, would you like to create and switch to a new kubectl context?");
-	if approve {
+	if approve := util.GetApproval("Would you like to (re)create and switch to a new kubectl context for this project?"); approve {
 		// Setup a kubectl context and switch to it
-		util.ExecCmd("kubectl", "config", "delete-context", name)
-		util.ExecCmd("kubectl", "config", "set-context", name, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextUser), fmt.Sprintf("--namespace=%s", name))
-		util.ExecCmd("kubectl", "config", "use-context", name)
-		color.Cyan("Created new %s kubectl context and set to active.", name)
+		util.ExecCmd("kubectl", "config", "delete-context", projectName)
+		util.ExecCmd("kubectl", "config", "set-context", projectName, fmt.Sprintf("--cluster=%s", contextName), fmt.Sprintf("--user=%s", contextName), fmt.Sprintf("--namespace=%s", projectName))
+		util.ExecCmd("kubectl", "config", "use-context", projectName)
+		color.Cyan("Created new %s kubectl context and set to active.", projectName)
 	}
 }
 
+// Run a check to see if the project already exists in helm
+func checkExisting() bool {
+	projectName := projectConfig.GetString("project-name")
+
+	color.Cyan("Ensuring existing helm project does not already exist...")
+	projectExists := false
+	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s | grep 'STATUS: DEPLOYED'", projectName)); len(out) > 0 {
+		color.Yellow(out)
+		projectExists = true
+	}
+	return projectExists
+}
+
 // Accept projectname and chart to install project infra via helm
-func helmUpgrade(projectName string) error {
+func helmUpgrade() error {
+	projectName := projectConfig.GetString("project-name")
+	environment := projectConfig.GetString("environment")
 
 	color.Cyan("Installing project chart via helm...")
 
@@ -142,37 +145,37 @@ func helmUpgrade(projectName string) error {
 	helmValues = append(helmValues, fmt.Sprintf("environment_type=%s", environment))
 
 	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_id=%s", viper.GetString("BLACKFIRE_SERVER_ID")))
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", viper.GetString("BLACKFIRE_SERVER_TOKEN")))
+	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_id=%s", projectConfig.GetString("BLACKFIRE_SERVER_ID")))
+	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", projectConfig.GetString("BLACKFIRE_SERVER_TOKEN")))
 
-	helmValues = append(helmValues, fmt.Sprintf("php_image=%s", viper.GetString("php-image")))
-	helmValues = append(helmValues, fmt.Sprintf("php_xdebug_image=%s", viper.GetString("php-xdebug-image")))
-	helmValues = append(helmValues, fmt.Sprintf("nginx_image=%s", viper.GetString("nginx-image")))
-	helmValues = append(helmValues, fmt.Sprintf("web_image=%s", viper.GetString("web-image")))
+	helmValues = append(helmValues, fmt.Sprintf("php_image=%s", projectConfig.GetString("php-image")))
+	helmValues = append(helmValues, fmt.Sprintf("php_xdebug_image=%s", projectConfig.GetString("php-xdebug-image")))
+	helmValues = append(helmValues, fmt.Sprintf("nginx_image=%s", projectConfig.GetString("nginx-image")))
+	helmValues = append(helmValues, fmt.Sprintf("web_image=%s", projectConfig.GetString("web-image")))
 
 	if environment == "local" {
-		helmValues = append(helmValues, fmt.Sprintf("local.webroot=%s", path.Join(viper.GetString("PWD"), viper.GetString("environments.local.webroot"))))
-		helmValues = append(helmValues, fmt.Sprintf("local.project_root=%s", viper.GetString("PWD")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", viper.GetString("environments.local.mysql.db")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.pass=%s", viper.GetString("environments.local.mysql.pass")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.user=%s", viper.GetString("environments.local.mysql.user")))
+		helmValues = append(helmValues, fmt.Sprintf("local.webroot=%s", path.Join(projectConfig.GetString("PWD"), projectConfig.GetString("environments.local.webroot"))))
+		helmValues = append(helmValues, fmt.Sprintf("local.project_root=%s", projectConfig.GetString("PWD")))
+		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", projectConfig.GetString("environments.local.mysql.db")))
+		helmValues = append(helmValues, fmt.Sprintf("mysql.pass=%s", projectConfig.GetString("environments.local.mysql.pass")))
+		helmValues = append(helmValues, fmt.Sprintf("mysql.user=%s", projectConfig.GetString("environments.local.mysql.user")))
 		localIp, _ := util.ExecCmdChain("ifconfig | grep \"inet \" | grep -v 127.0.0.1 | awk '{print $2}' | sed -n 1p")
 		helmValues = append(helmValues, fmt.Sprintf("local.host_ip=%s", localIp))
 	} else {
-		project := viper.GetString(fmt.Sprintf("environments.%s.project", environment))
-		computeZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
-		instance := viper.GetString(fmt.Sprintf("environments.%s.mysql.instance", environment))
+		project := projectConfig.GetString(fmt.Sprintf("environments.%s.project", environment))
+		computeZone := projectConfig.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
+		instance := projectConfig.GetString(fmt.Sprintf("environments.%s.mysql.instance", environment))
 
-		database := viper.GetString(fmt.Sprintf("environments.%s.mysql.db", environment))
+		database := projectConfig.GetString(fmt.Sprintf("environments.%s.mysql.db", environment))
 
 		mysqlInstance := fmt.Sprintf("%s:%s:%s", project, computeZone, instance)
 
 		helmValues = append(helmValues, fmt.Sprintf("mysql.instance=%s", mysqlInstance))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", database))
 
-		appImage := viper.GetString(fmt.Sprintf("environments.%s.application-image", environment))
+		appImage := projectConfig.GetString(fmt.Sprintf("environments.%s.application-image", environment))
 		// Push using latest tag or CIRCLE_SHA1 if running in circle environment/is otherwise provided.
-		if circleSha := viper.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {
+		if circleSha := projectConfig.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {
 			appImage = fmt.Sprintf("%s:%s", appImage, circleSha)
 		} else {
 			appImage = fmt.Sprintf("%s:%s", appImage, "latest")
@@ -182,10 +185,10 @@ func helmUpgrade(projectName string) error {
 	}
 
 	if environment == "dev" {
-		helmValues = append(helmValues, fmt.Sprintf("dev.basic_auth=%s", viper.GetString("environments.dev.basic-auth")))
+		helmValues = append(helmValues, fmt.Sprintf("dev.basic_auth=%s", projectConfig.GetString("environments.dev.basic-auth")))
 	}
 
-	command := fmt.Sprintf("helm upgrade --install %s %s --set %s", projectName, viper.GetString("chart"), strings.Join(helmValues, ","))
+	command := fmt.Sprintf("helm upgrade --install %s %s --set %s", projectName, projectConfig.GetString("chart"), strings.Join(helmValues, ","))
 	out, err := util.ExecCmdChainCombinedOut(command)
 	if (err != nil) {
 		color.Red(out)

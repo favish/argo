@@ -20,15 +20,11 @@ package project
 import (
 	"github.com/spf13/cobra"
 	"github.com/fatih/color"
-	"os"
 	"github.com/favish/argo/util"
 	"fmt"
-	"errors"
 	"github.com/spf13/viper"
 	"bytes"
 )
-
-// TODO - Pull project values into struct here or in config for easier re-use - MEA
 
 var createCmd = &cobra.Command{
 	Use:   	"deploy",
@@ -40,26 +36,22 @@ var createCmd = &cobra.Command{
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
 
-		var name = ProjectName
-
-		if approve := util.GetApproval(fmt.Sprintf("This will create a deployment in the %s environment, are you sure?", environment)); !approve {
+		if approve := util.GetApproval(fmt.Sprintf("This will create a deployment in the %s environment, are you sure?", projectConfig.GetString("environment"))); !approve {
 			color.Yellow("Deployment cancelled by user.")
 			return
 		}
 
-		setupKubectl(name, environment, false)
-
-		if exists := checkExisting(name); exists {
+		if exists := checkExisting(); exists {
 			color.Yellow("Project is already running!  Check helm/kubernetes for a running project.")
 			return
 		}
 
-		if (environment == "local") {
+		if (projectConfig.GetString("environment") == "local") {
 			setImagePullSecret()
-			addEtcHosts(name)
+			addEtcHosts()
 		}
 
-		if err := helmUpgrade(name); err != nil {
+		if err := helmUpgrade(); err != nil {
 			color.Red("Error installing chart via helm!")
 			return
 		}
@@ -74,24 +66,13 @@ o . o o.o
   \. ..  . /
 ^^^^^^^^^^^^^^^^^^^^
 		`)
-		if (environment == "local") {
-			color.Cyan("Local site available at: http://local.%s.com \n \n", name)
+		if (projectConfig.GetString("environment") == "local") {
+			color.Cyan("Local site available at: http://local.%s.com \n \n", projectConfig.GetString("project-name"))
 		}
-		color.Green("Your project infrastructure has been created on the %s environment!", environment)
+		color.Green("Your project infrastructure has been created on the %s environment!", projectConfig.GetString("environment"))
 		color.Green("This has bootstrapped a kubernetes environment, normal kubectl commands will allow you to interrogate your new infra.")
 		color.Yellow("If this is your fist time working with this project, use `argo project sync` to obtain databases and files.")
 	},
-}
-
-// Run a check to see if the project already exists in helm
-func checkExisting(name string) bool {
-	color.Cyan("Ensuring existing helm project does not exist...")
-	projectExists := false
-	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s | grep 'STATUS: DEPLOYED'", name)); len(out) > 0 {
-		color.Yellow(out)
-		projectExists = true
-	}
-	return projectExists
 }
 
 // Local environments will need to use current developer's gcloud credentials
@@ -126,32 +107,16 @@ func setImagePullSecret() {
 
 }
 
-func cloneProject(projectName string, gitRepo string) error {
-	gitUrlTpl := "git@github.com:%s.git"
-	gitUrl := fmt.Sprintf(gitUrlTpl, gitRepo)
-
-	color.Cyan("Creating project %s from %s", projectName, gitUrl)
-
-	err := util.ExecCmd("git", "clone", gitUrl, projectName)
-
-	os.Chdir(projectName)
-
-	// Reload config from this directory
-	if noConfig := viper.ReadInConfig(); noConfig != nil {
-		err = errors.New("Cloned a project without an argo configuration file in it's root.  Please add one and run this command again.")
-	}
-
-	return err
-}
-
 // Add or update an entry to access this project locally into /etc/hosts
-func addEtcHosts(projectName string) {
+func addEtcHosts() {
+	projectName := projectConfig.GetString("project-name")
 
-	color.Yellow("Adding/updating entry to /etc/hosts.  Will require sudo permissions...")
-	localAddress := fmt.Sprintf("local.%s.com", projectName)
-
-	util.ExecCmdChain(fmt.Sprintf("sudo sed --in-place '/%s/d' /etc/hosts", localAddress))
-
-	util.ExecCmdChain(fmt.Sprintf("echo \"$(minikube ip) %s\" | sudo tee -a /etc/hosts", localAddress))
-
+	if approve := util.GetApproval("Argo can add an /etc/hosts entry for this project for you, would you like to do this?"); approve {
+		color.Yellow("Adding/updating entry to /etc/hosts.  Will require sudo permissions...")
+		localAddress := fmt.Sprintf("local.%s.com", projectName)
+		util.ExecCmdChain(fmt.Sprintf("sudo sed --in-place '/%s/d' /etc/hosts", localAddress))
+		util.ExecCmdChain(fmt.Sprintf("echo \"$(minikube ip) %s\" | sudo tee -a /etc/hosts", localAddress))
+	} else {
+		color.Cyan("Skipping auto-addition of /etc/hosts entry.  You can map this yourself using `echo \"$(minikube ip) PROJECT NAME\" | sudo tee -a /etc/hosts` if you'd like to.")
+	}
 }
