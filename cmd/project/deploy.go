@@ -71,6 +71,7 @@ o . o o.o
 		color.Green("Your project infrastructure has been created on the %s environment!", projectConfig.GetString("environment"))
 		color.Green("This has bootstrapped a kubernetes environment, normal kubectl commands will allow you to interrogate your new infra.")
 		color.Yellow("If this is your fist time working with this project, use `argo project sync` to obtain databases and files.")
+		color.Yellow("It may take a few moments for the infrastructure to spin up.")
 	},
 }
 
