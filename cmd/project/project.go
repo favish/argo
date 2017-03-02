@@ -19,7 +19,6 @@ var ProjectCmd = &cobra.Command{
 
 	// Run before every child command executes run
 	PersistentPreRun: func (cmd *cobra.Command, args []string) {
-
 		initProjectConfig()
 
 		projectName := projectConfig.GetString("project-name");
@@ -28,7 +27,7 @@ var ProjectCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		initKubectlConfig()
+		setKubectlConfig(projectConfig.GetString("environment"))
 
 		// Warn if blackfire environment not setup
 		if blackFire := projectConfig.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
@@ -78,33 +77,31 @@ func initProjectConfig() {
 }
 
 
-// Setup values to use for gcloud and kubectl commands
-func initKubectlConfig() {
+// Setup values to use for gcloud and kubectl commands for specified environment
+func setKubectlConfig(environment string) {
 	projectName := projectConfig.GetString("project-name");
-	environment := projectConfig.GetString("environment");
 
 	var contextCluster string
 	if environment == "local" {
 		contextCluster = "minikube"
 	} else {
-		// Add aliases to access in later commands
-		projectConfig.RegisterAlias("gcloudProject", fmt.Sprintf("environments.%s.project", environment))
-		projectConfig.RegisterAlias("gcloudZone", fmt.Sprintf("environments.%s.compute-zone", environment))
-		projectConfig.RegisterAlias("gcloudCluster", fmt.Sprintf("environments.%s.cluster", environment))
+		gcloudProject := viper.GetString(fmt.Sprintf("environments.%s.project", environment))
+		gcloudZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
+		gcloudCluster := viper.GetString(fmt.Sprintf("environments.%s.cluster", environment))
 
 		if err := util.ExecCmd("gcloud",
 				"container",
 				"clusters",
 				"get-credentials",
-				projectConfig.GetString("gcloudCluster"),
-				fmt.Sprintf("--project=%s", projectConfig.GetString("gcloudProject")),
-				fmt.Sprintf("--zone=%s", projectConfig.GetString("gcloudZone")),
+				gcloudCluster,
+				fmt.Sprintf("--project=%s", gcloudProject),
+				fmt.Sprintf("--zone=%s", gcloudZone),
 			); err != nil {
 			color.Red("Error getting kubectl cluster credentials via gcloud! %s", err)
 			os.Exit(1)
 		}
 
-		contextCluster = fmt.Sprintf("gke_%s_%s_%s", projectConfig.GetString("gcloudProject"), projectConfig.GetString("gcloudZone"), projectConfig.GetString("gcloudCluster"))
+		contextCluster = fmt.Sprintf("gke_%s_%s_%s", gcloudProject, gcloudZone, gcloudCluster)
 	}
 
 	// If the namespace does not exist, create one.
