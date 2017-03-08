@@ -89,14 +89,16 @@ func setKubectlConfig(environment string) {
 		gcloudZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
 		gcloudCluster := viper.GetString(fmt.Sprintf("environments.%s.cluster", environment))
 
-		if err := util.ExecCmd("gcloud",
-				"container",
-				"clusters",
-				"get-credentials",
-				gcloudCluster,
-				fmt.Sprintf("--project=%s", gcloudProject),
-				fmt.Sprintf("--zone=%s", gcloudZone),
-			); err != nil {
+		// To use argo as a deployment tool in CircleCI, gcloud has to be invoked as sudo with explicit binary path
+		gcloudCmd := fmt.Sprintf("container clusters get-credentials %s --project=%s --zone=%s", gcloudCluster, gcloudProject, gcloudZone)
+
+		if projectConfig.GetString("CIRCLECI") == "TRUE" {
+			gcloudCmd = fmt.Sprintf("sudo /opt/google-cloud-sdk/bin/gcloud %s", gcloudCmd)
+		} else {
+			gcloudCmd = fmt.Sprintf("gcloud %s", gcloudCmd)
+		}
+
+		if _, err := util.ExecCmdChain(gcloudCmd); err != nil {
 			color.Red("Error getting kubectl cluster credentials via gcloud! %s", err)
 			os.Exit(1)
 		}
