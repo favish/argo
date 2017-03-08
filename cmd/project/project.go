@@ -92,7 +92,7 @@ func setKubectlConfig(environment string) {
 		// To use argo as a deployment tool in CircleCI, gcloud has to be invoked as sudo with explicit binary path
 		gcloudCmd := fmt.Sprintf("container clusters get-credentials %s --project=%s --zone=%s", gcloudCluster, gcloudProject, gcloudZone)
 
-		if projectConfig.GetString("CIRCLECI") == "TRUE" {
+		if projectConfig.GetString("CIRCLECI") == "true" {
 			gcloudCmd = fmt.Sprintf("sudo /opt/google-cloud-sdk/bin/gcloud %s", gcloudCmd)
 		} else {
 			gcloudCmd = fmt.Sprintf("gcloud %s", gcloudCmd)
