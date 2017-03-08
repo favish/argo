@@ -27,15 +27,6 @@ var ProjectCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		setKubectlConfig(projectConfig.GetString("environment"))
-
-		// Warn if blackfire environment not setup
-		if blackFire := projectConfig.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
-			c := color.New(color.FgHiYellow).Add(color.Bold)
-			c.Println("Warning: You do not have blackfire credentials stored in your environment! You will not be able to use blackfire until you add them!")
-			c.Println("To add them easily, copy the export lines from https://blackfire.io/docs/integrations/docker (server are likely all you'll use) and add them to your ~/.zshrc \n")
-		}
-
 		// If minikube is not running and local environment is selected, ask user if they'd like us to start it
 		if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0 && projectConfig.GetString("environment") == "local" {
 			if approve := util.GetApproval("Minikube is not running, would you like to start it?"); approve {
@@ -44,6 +35,15 @@ var ProjectCmd = &cobra.Command{
 				color.Red("You need to start minikube before deploying a project!")
 				os.Exit(1)
 			}
+		}
+
+		setKubectlConfig(projectConfig.GetString("environment"))
+
+		// Warn if blackfire environment not setup
+		if blackFire := projectConfig.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
+			c := color.New(color.FgHiYellow).Add(color.Bold)
+			c.Println("Warning: You do not have blackfire credentials stored in your environment! You will not be able to use blackfire until you add them!")
+			c.Println("To add them easily, copy the export lines from https://blackfire.io/docs/integrations/docker (server are likely all you'll use) and add them to your ~/.zshrc \n")
 		}
 	},
 }
@@ -154,6 +154,8 @@ func helmUpgrade() error {
 	helmValues = append(helmValues, fmt.Sprintf("php_xdebug_image=%s", projectConfig.GetString("php-xdebug-image")))
 	helmValues = append(helmValues, fmt.Sprintf("nginx_image=%s", projectConfig.GetString("nginx-image")))
 	helmValues = append(helmValues, fmt.Sprintf("web_image=%s", projectConfig.GetString("web-image")))
+
+	helmValues = append(helmValues, fmt.Sprintf("application.env=%s", environment))
 
 	if environment == "local" {
 		helmValues = append(helmValues, fmt.Sprintf("local.webroot=%s", path.Join(projectConfig.GetString("PWD"), projectConfig.GetString("environments.local.webroot"))))
