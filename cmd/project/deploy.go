@@ -112,7 +112,7 @@ func addEtcHosts() {
 	projectName := projectConfig.GetString("project-name")
 
 	if approve := util.GetApproval("Argo can add an /etc/hosts entry for this project for you, would you like to do this?"); approve {
-		color.Yellow("Adding/updating entry to /etc/hosts.  Will require sudo permissions...")
+		color.Cyan("Adding/updating entry to /etc/hosts.  Will require sudo permissions...")
 		localAddress := fmt.Sprintf("local.%s.com", projectName)
 		util.ExecCmdChain(fmt.Sprintf("sudo sed --in-place '/%s/d' /etc/hosts", localAddress))
 		util.ExecCmdChain(fmt.Sprintf("echo \"$(minikube ip) %s\" | sudo tee -a /etc/hosts", localAddress))
