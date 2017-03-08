@@ -16,7 +16,7 @@ var deleteCmd = &cobra.Command{
 
 		if approve := util.GetApproval(fmt.Sprintf("This will delete your project's infrastucture for your %s environment are you sure?", environment)); approve {
 			util.ExecCmd("helm", "delete", name)
-			util.ExecCmd("kubectl", "config", "delete-context", name)
+			util.ExecCmd("kubectl", "config", "delete-context", fmt.Sprintf("%s-%s", name, environment))
 			color.Green("Project infrastructure removed!")
 		} else {
 			return
