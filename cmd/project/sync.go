@@ -24,10 +24,13 @@ var filesCmd = &cobra.Command{
 	Ex. "argo project sync files dev local" brings dev files to your machine.
 	Using rsync and project argo.yml configuration under the hood.
 	Valid choices for FROM/TO are local, prod, or dev.
+
+	WILL NOT SYNC TWO REMOTE HOSTS.
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
 		validateArgs(args)
 
+		destinationEnv := args[1]
 		source, destination := getFileSyncPaths(args)
 
 		if approve := util.GetApproval(fmt.Sprintf("This will sync files from %s (%s) to %s (%s), proceed?", args[0], source, args[1], destination)); !approve {
@@ -35,9 +38,14 @@ var filesCmd = &cobra.Command{
 		} else {
 			color.Cyan("Adding ssh aliases via gcloud for compute instances...")
 
-			util.ExecCmd("gcloud", "compute", "config-ssh", "--project=favish-general")
+			if (destination != "local") {
+				color.Cyan(destinationEnv)
+				destProject := projectConfig.GetString(fmt.Sprintf("environments.%s.project", destinationEnv))
+				// TODO - only support local > remote or remote > local.
+				util.ExecCmd("gcloud", "compute", "config-ssh", fmt.Sprintf("--project=%s", destProject))
+			}
 
-			util.ExecCmd("rsync", "-avz", fmt.Sprintf("%s*", source), destination)
+			util.ExecCmd("rsync", "-avzh", "--progress", source, destination)
 		}
 	},
 }
@@ -100,6 +108,7 @@ var dbCmd = &cobra.Command{
 
 		color.Cyan("Redirecting kubectl config to %s environment...", destination)
 		setKubectlConfig(destination)
+
 		// Get the container running application on destination
 		destPodName, err := util.ExecCmdChain("kubectl get pods --output='name' --selector='service=app' | awk -F'/' '{print $2}' | tr -d '\n'")
 		if (err != nil) {
@@ -114,8 +123,8 @@ var dbCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		//color.Cyan("Dropping %s database...", destination)
-		//err = util.ExecCmd("kubectl", "exec", "--stdin=true", "--tty=true", destPodName, "--", "/bin/bash -c \"cd docroot && drush sql-drop -y\"")
+		color.Cyan("Dropping %s database...", destination)
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'cd docroot && drush sql-drop -y'", destPodName))
 
 		color.Cyan("Importing database dump to %s environment, may take a few moments...", destination)
 		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s < /tmp/argo-db-tmp.sql -- /bin/bash -c 'cd docroot && drush sqlc'", destPodName))
@@ -125,6 +134,7 @@ var dbCmd = &cobra.Command{
 		}
 
 		err = util.ExecCmd("rm", "/tmp/argo-db-tmp.sql")
+		err = util.ExecCmd("rm", "/tmp/argo-db-tmp.sql.gz")
 		if (err != nil) {
 			color.Red("Error removing temp database: %s", err)
 			os.Exit(1)
@@ -162,7 +172,7 @@ func getFileSyncPaths(args []string) (string, string) {
 	locations := map[string]string {
 		"dev": fmt.Sprintf("%s:%s%s/", viper.GetString("environments.dev.files-instance"), "/mnt/disks/", projectName),
 		"prod": fmt.Sprintf("%s:%s%s/", viper.GetString("environments.prod.files-instance"), "/mnt/disks/", projectName),
-		"local": "./docroot/sites/default/files/",
+		"local": "docroot/sites/default/files/",
 	}
 
 	from := locations[args[0]]
