@@ -149,7 +149,8 @@ func helmUpgrade() error {
 
 	var waitFlag string
 	if projectConfig.GetBool("wait") {
-		waitFlag = "--wait"
+		// Intended for CI, wait for up to 10 minutes for updated infrastructure to apply
+		waitFlag = "--wait --timeout 600"
 		color.Cyan("Using wait, command will take a moment...")
 	}
 
