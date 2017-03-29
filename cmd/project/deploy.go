@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"github.com/spf13/viper"
 	"bytes"
+	"os"
 )
 
 var createCmd = &cobra.Command{
@@ -43,6 +44,7 @@ var createCmd = &cobra.Command{
 
 		if exists := checkExisting(); exists {
 			color.Yellow("Project is already running!  Check helm/kubernetes for a running project.  If you want to update this, run `argo project update` instead")
+			os.Exit(0)
 		}
 
 		if (projectConfig.GetString("environment") == "local") {

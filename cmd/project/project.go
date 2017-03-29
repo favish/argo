@@ -55,6 +55,9 @@ func init() {
 	ProjectCmd.PersistentFlags().StringP("environment", "e", "local", "Define which environment to apply argo commands to. Ex: \"local\", \"dev\", or \"prod\".")
 	projectConfig.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
 
+	ProjectCmd.PersistentFlags().Bool("wait", false, "If true, apply --wait to helm commands.  See helm documentation for more details.")
+	projectConfig.BindPFlag("wait", ProjectCmd.PersistentFlags().Lookup("wait"))
+
 	ProjectCmd.AddCommand(createCmd)
 	ProjectCmd.AddCommand(syncCmd)
 	ProjectCmd.AddCommand(deleteCmd)
@@ -89,10 +92,11 @@ func setKubectlConfig(environment string) {
 		gcloudZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
 		gcloudCluster := viper.GetString(fmt.Sprintf("environments.%s.cluster", environment))
 
-		// To use argo as a deployment tool in CircleCI, gcloud has to be invoked as sudo with explicit binary path
 		gcloudCmd := fmt.Sprintf("container clusters get-credentials %s --project=%s --zone=%s", gcloudCluster, gcloudProject, gcloudZone)
 
-		if projectConfig.GetString("CIRCLECI") == "true" {
+		// To use argo as a deployment tool in CircleCI, gcloud has to be invoked as sudo with explicit binary path
+		// CircleCI 2.0 does not have this stipulation, identified by presence of CIRCLE_STAGE var
+		if projectConfig.GetString("CIRCLECI") == "true" && len(projectConfig.GetString("CIRCLE_STAGE")) == 0 {
 			gcloudCmd = fmt.Sprintf("sudo /opt/google-cloud-sdk/bin/gcloud %s", gcloudCmd)
 		} else {
 			gcloudCmd = fmt.Sprintf("gcloud %s", gcloudCmd)
@@ -142,6 +146,12 @@ func helmUpgrade() error {
 	environment := projectConfig.GetString("environment")
 
 	color.Cyan("Installing project chart via helm...")
+
+	var waitFlag string
+	if projectConfig.GetBool("wait") {
+		waitFlag = "--wait"
+		color.Cyan("Using wait, command will take a moment...")
+	}
 
 	var helmValues []string
 
@@ -194,10 +204,11 @@ func helmUpgrade() error {
 		helmValues = append(helmValues, fmt.Sprintf("dev.basic_auth=%s", projectConfig.GetString("environments.dev.basic-auth")))
 	}
 
-	command := fmt.Sprintf("helm upgrade --install %s %s --set %s", projectName, projectConfig.GetString("chart"), strings.Join(helmValues, ","))
+	command := fmt.Sprintf("helm upgrade --install %s %s %s --set %s", waitFlag, projectName, projectConfig.GetString("chart"), strings.Join(helmValues, ","))
 	out, err := util.ExecCmdChainCombinedOut(command)
 	if (err != nil) {
 		color.Red(out)
+		os.Exit(1)
 	} else if debugMode := viper.GetString("debug"); len(debugMode) > 0 {
 		color.Green(out)
 	}
