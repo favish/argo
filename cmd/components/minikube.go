@@ -11,6 +11,7 @@ var minikubeInstallCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Install gcloud and kubectl
 		util.BrewCaskInstall("minikube", "minikube")
+		util.ExecCmd("minikube", "addons", "enable", "ingress")
 		//TODO - make this source minikube env - mf
 		// Remove line with 'minikube docker-env' and add completions where necessary
 		util.ExecCmd("sed","-i.pre-minikube.bak", "/minikube docker-env/,1 d", util.Home + "/.zshrc")
