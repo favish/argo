@@ -149,8 +149,8 @@ func helmUpgrade() error {
 
 	var waitFlag string
 	if projectConfig.GetBool("wait") {
-		// Intended for CI, wait for up to 10 minutes for updated infrastructure to apply
-		waitFlag = "--wait --timeout 600"
+		// Intended for CI, wait for updated infrastructure to apply fully so subsquent commands (drush) run against new infra
+		waitFlag = "--wait"
 		color.Cyan("Using wait, command will take a moment...")
 	}
 
@@ -162,6 +162,8 @@ func helmUpgrade() error {
 	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
 	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_id=%s", projectConfig.GetString("BLACKFIRE_SERVER_ID")))
 	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", projectConfig.GetString("BLACKFIRE_SERVER_TOKEN")))
+	helmValues = append(helmValues, fmt.Sprintf("blackfire.client_id=%s", projectConfig.GetString("BLACKFIRE_CLIENT_ID")))
+	helmValues = append(helmValues, fmt.Sprintf("blackfire.client_token=%s", projectConfig.GetString("BLACKFIRE_CLIENT_TOKEN")))
 
 	helmValues = append(helmValues, fmt.Sprintf("php_image=%s", projectConfig.GetString("php-image")))
 	helmValues = append(helmValues, fmt.Sprintf("php_xdebug_image=%s", projectConfig.GetString("php-xdebug-image")))
@@ -170,9 +172,13 @@ func helmUpgrade() error {
 
 	helmValues = append(helmValues, fmt.Sprintf("application.env=%s", environment))
 
+	cidrConfigValue := projectConfig.GetString(fmt.Sprintf("environments.%s.container-cidr", environment))
+	helmValues = append(helmValues, fmt.Sprintf("container_cidr=%s", cidrConfigValue))
+
 	if environment == "local" {
 		helmValues = append(helmValues, fmt.Sprintf("local.webroot=%s", path.Join(projectConfig.GetString("PWD"), projectConfig.GetString("environments.local.webroot"))))
 		helmValues = append(helmValues, fmt.Sprintf("local.project_root=%s", projectConfig.GetString("PWD")))
+		helmValues = append(helmValues, fmt.Sprintf("local.theme_dir=%s", projectConfig.GetString("environments.local.theme_dir")))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", projectConfig.GetString("environments.local.mysql.db")))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.pass=%s", projectConfig.GetString("environments.local.mysql.pass")))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.user=%s", projectConfig.GetString("environments.local.mysql.user")))
