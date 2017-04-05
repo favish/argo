@@ -28,12 +28,14 @@ var ProjectCmd = &cobra.Command{
 		}
 
 		// If minikube is not running and local environment is selected, ask user if they'd like us to start it
-		if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0 && projectConfig.GetString("environment") == "local" {
-			if approve := util.GetApproval("Minikube is not running, would you like to start it?"); approve {
-				components.StartCmd.Run(cmd, args)
-			} else {
-				color.Red("You need to start minikube before deploying a project!")
-				os.Exit(1)
+		if projectConfig.GetString("environment") == "local" {
+			if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0  {
+				if approve := util.GetApproval("Minikube is not running, would you like to start it?"); approve {
+					components.StartCmd.Run(cmd, args)
+				} else {
+					color.Red("You need to start minikube before deploying a project!")
+					os.Exit(1)
+				}
 			}
 		}
 
@@ -195,6 +197,10 @@ func helmUpgrade() error {
 
 		helmValues = append(helmValues, fmt.Sprintf("mysql.instance=%s", mysqlInstance))
 		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", database))
+
+		cronHost := projectConfig.GetString(fmt.Sprintf("environments.%s.cron.host", environment))
+		cronKey := projectConfig.GetString(fmt.Sprintf("environments.%s.cron.key", environment))
+		helmValues = append(helmValues, fmt.Sprintf("cron.host=%s,cron.key=%s", cronHost, cronKey))
 
 		appImage := projectConfig.GetString(fmt.Sprintf("environments.%s.application-image", environment))
 		// Push using latest tag or CIRCLE_SHA1 if running in circle environment/is otherwise provided.
