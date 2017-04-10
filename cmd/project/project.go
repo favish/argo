@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"fmt"
-	"path"
 )
 
 var ProjectCmd = &cobra.Command{
@@ -142,7 +141,39 @@ func checkExisting() bool {
 	return projectExists
 }
 
-// Accept projectname and chart to install project infra via helm
+type HelmValues struct {
+	values []string
+}
+// Add value directly with resolved string
+func (hv *HelmValues) appendValue(helmKey string, value string, required bool) {
+	if (len(value) <= 0) {
+		if (required) {
+			color.Red("Missing required helm value for %s", helmKey)
+			os.Exit(1)
+		} else if (viper.GetBool("debug")) {
+			color.Yellow("[debug] - Not setting value for helm key %s", helmKey)
+		}
+	} else {
+		if (viper.GetBool("debug")) {
+			color.Yellow("[debug] - Adding helm value %s for key %s", helmKey, value)
+		}
+		hv.values = append(hv.values, fmt.Sprintf("%s=%s", helmKey, value))
+	}
+}
+
+// Add value from argo.yml or other config value (environment variables) by key
+func (hv *HelmValues) appendProjectValue(helmKey string, projectKey string, required bool) {
+	projectValue := projectConfig.GetString(projectKey)
+	hv.appendValue(helmKey, projectValue, required)
+}
+
+// Grab project value based on environment value
+// All environment values live at environments.%s, ie environments.dev or environments.local
+func (hv *HelmValues) appendProjectEnvValue(helmKey string, projectKey string, environment string, required bool) {
+	environmentValue := projectConfig.GetString(fmt.Sprintf("environments.%s.%s", environment, projectKey))
+	hv.appendValue(helmKey, environmentValue, required)
+}
+
 func helmUpgrade() error {
 	projectName := projectConfig.GetString("project-name")
 	environment := projectConfig.GetString("environment")
@@ -156,51 +187,37 @@ func helmUpgrade() error {
 		color.Cyan("Using wait, command will take a moment...")
 	}
 
-	var helmValues []string
+	var helmValues HelmValues
 
-	helmValues = append(helmValues, fmt.Sprintf("namespace=%s", projectName))
-	helmValues = append(helmValues, fmt.Sprintf("environment_type=%s", environment))
+	helmValues.appendValue("namespace", projectName, true)
+	helmValues.appendValue("environment_type", environment, true)
+	helmValues.appendValue("application.env", environment, true)
 
 	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_id=%s", projectConfig.GetString("BLACKFIRE_SERVER_ID")))
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.server_token=%s", projectConfig.GetString("BLACKFIRE_SERVER_TOKEN")))
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.client_id=%s", projectConfig.GetString("BLACKFIRE_CLIENT_ID")))
-	helmValues = append(helmValues, fmt.Sprintf("blackfire.client_token=%s", projectConfig.GetString("BLACKFIRE_CLIENT_TOKEN")))
-
-	helmValues = append(helmValues, fmt.Sprintf("php_image=%s", projectConfig.GetString("php-image")))
-	helmValues = append(helmValues, fmt.Sprintf("php_xdebug_image=%s", projectConfig.GetString("php-xdebug-image")))
-	helmValues = append(helmValues, fmt.Sprintf("nginx_image=%s", projectConfig.GetString("nginx-image")))
-	helmValues = append(helmValues, fmt.Sprintf("web_image=%s", projectConfig.GetString("web-image")))
-
-	helmValues = append(helmValues, fmt.Sprintf("application.env=%s", environment))
-
-	cidrConfigValue := projectConfig.GetString(fmt.Sprintf("environments.%s.container-cidr", environment))
-	helmValues = append(helmValues, fmt.Sprintf("container_cidr=%s", cidrConfigValue))
+	helmValues.appendProjectValue("blackfire.server_id", "BLACKFIRE_SERVER_ID", false)
+	helmValues.appendProjectValue("blackfire.server_token", "BLACKFIRE_SERVER_TOKEN", false)
+	helmValues.appendProjectValue("blackfire.client_id", "BLACKFIRE_CLIENT_ID", false)
+	helmValues.appendProjectValue("blackfire.client_token", "BLACKFIRE_CLIENT_TOKEN", false)
 
 	if environment == "local" {
-		helmValues = append(helmValues, fmt.Sprintf("local.webroot=%s", path.Join(projectConfig.GetString("PWD"), projectConfig.GetString("environments.local.webroot"))))
-		helmValues = append(helmValues, fmt.Sprintf("local.project_root=%s", projectConfig.GetString("PWD")))
-		helmValues = append(helmValues, fmt.Sprintf("local.theme_dir=%s", projectConfig.GetString("environments.local.theme_dir")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", projectConfig.GetString("environments.local.mysql.db")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.pass=%s", projectConfig.GetString("environments.local.mysql.pass")))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.user=%s", projectConfig.GetString("environments.local.mysql.user")))
+		helmValues.appendProjectValue("local.project_root", "PWD", true)
+		helmValues.appendProjectValue("local.theme_dir", "environments.local.theme_dir", true)
+		helmValues.appendProjectValue("mysql.db", "environments.local.mysql.db", true)
+		helmValues.appendProjectValue("mysql.pass", "environments.local.mysql.pass", true)
+		helmValues.appendProjectValue("mysql.user", "environments.local.mysql.user", true)
+
 		localIp, _ := util.ExecCmdChain("ifconfig | grep \"inet \" | grep -v 127.0.0.1 | awk '{print $2}' | sed -n 1p")
-		helmValues = append(helmValues, fmt.Sprintf("local.host_ip=%s", localIp))
+		helmValues.appendValue("local.host_ip=%s", localIp, true)
 	} else {
-		project := projectConfig.GetString(fmt.Sprintf("environments.%s.project", environment))
-		computeZone := projectConfig.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
-		instance := projectConfig.GetString(fmt.Sprintf("environments.%s.mysql.instance", environment))
+		cidrConfigValue := projectConfig.GetString(fmt.Sprintf("environments.%s.container-cidr", environment))
+		helmValues.appendValue("container_cidr", cidrConfigValue, true)
 
-		database := projectConfig.GetString(fmt.Sprintf("environments.%s.mysql.db", environment))
+		helmValues.appendProjectEnvValue("mysql.instance", "mysql.instance", environment, true)
 
-		mysqlInstance := fmt.Sprintf("%s:%s:%s", project, computeZone, instance)
+		helmValues.appendProjectEnvValue("mysql.db", "mysql.db", environment, true)
 
-		helmValues = append(helmValues, fmt.Sprintf("mysql.instance=%s", mysqlInstance))
-		helmValues = append(helmValues, fmt.Sprintf("mysql.db=%s", database))
-
-		cronHost := projectConfig.GetString(fmt.Sprintf("environments.%s.cron.host", environment))
-		cronKey := projectConfig.GetString(fmt.Sprintf("environments.%s.cron.key", environment))
-		helmValues = append(helmValues, fmt.Sprintf("cron.host=%s,cron.key=%s", cronHost, cronKey))
+		helmValues.appendProjectEnvValue("cron.host", "cron.host", environment, false)
+		helmValues.appendProjectEnvValue("cron.key", "cron.key", environment, false)
 
 		appImage := projectConfig.GetString(fmt.Sprintf("environments.%s.application-image", environment))
 		// Push using latest tag or CIRCLE_SHA1 if running in circle environment/is otherwise provided.
@@ -209,15 +226,21 @@ func helmUpgrade() error {
 		} else {
 			appImage = fmt.Sprintf("%s:%s", appImage, "latest")
 		}
+		helmValues.appendValue("application.image", appImage, true)
 
-		helmValues = append(helmValues, fmt.Sprintf("application.image=%s", appImage))
+		helmValues.appendProjectEnvValue("web_node_port", "web-node-port", environment, true)
 	}
 
 	if environment == "dev" {
-		helmValues = append(helmValues, fmt.Sprintf("dev.basic_auth=%s", projectConfig.GetString("environments.dev.basic-auth")))
+		helmValues.appendProjectValue("dev.basic_auth", "environments.dev.basic-auth", true)
+		helmValues.appendProjectValue("dev.basic_auth_node_port", "environments.dev.basic-auth-node-port", true)
 	}
 
-	command := fmt.Sprintf("helm upgrade --install %s %s %s --set %s", waitFlag, projectName, projectConfig.GetString("chart"), strings.Join(helmValues, ","))
+	if environment == "prod" {
+		helmValues.appendProjectEnvValue("hostname", "hostname", "prod", true)
+	}
+
+	command := fmt.Sprintf("helm upgrade --install %s %s %s --set %s", waitFlag, projectName, projectConfig.GetString("chart"), strings.Join(helmValues.values, ","))
 	out, err := util.ExecCmdChainCombinedOut(command)
 	if (err != nil) {
 		color.Red(out)
