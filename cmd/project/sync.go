@@ -60,6 +60,10 @@ var dbCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		validateArgs(args)
 
+		if (args[0] == "prod" || args[1] == "prod") {
+			color.Red("WARNING: This Command performs a sqldump, which causes the database to READ LOCK during the dump operation.")
+			color.Red("WARNING: During this time, the sql database will be effectively inaccessible to applications, and the site will go down.")
+		}
 		if approve := util.GetApproval("Syncing databases will cause a temporary service outage for both targets, are you sure?"); !approve {
 			return
 		}
@@ -87,18 +91,23 @@ var dbCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Dump database on FROM environment
+		color.Cyan("Creating a database dump on FROM container...")
 		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'cd docroot && drush sql-dump --gzip --result-file=/tmp/argo-db-tmp.sql'", sourcePodName))
 		if (err != nil) {
 			color.Red("Error getting dump: %s", err)
 			os.Exit(1)
 		}
 
+		// Copy database to operator's machine
+		color.Cyan("Copying dump from FROM container to your machine...")
 		err = util.ExecCmd("kubectl", "cp", fmt.Sprintf("%s:/tmp/argo-db-tmp.sql.gz", sourcePodName), "/tmp/argo-db-tmp.sql.gz")
 		if (err != nil) {
 			color.Red("Error copying dump locally: %s", err)
 			os.Exit(1)
 		}
 
+		// Unzip on operator's machine
 		color.Cyan("Unzipping.  You may be prompted to overwrite, please do so.")
 		err = util.ExecCmd("gunzip", "/tmp/argo-db-tmp.sql.gz")
 		if (err != nil) {
@@ -106,6 +115,7 @@ var dbCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Point kubectl at DEST
 		color.Cyan("Redirecting kubectl config to %s environment...", destination)
 		setKubectlConfig(destination)
 
@@ -116,8 +126,8 @@ var dbCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		color.Cyan("Creating backup of %s before dropping existing database...", destination)
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'cd docroot && drush sql-dump --gzip --result-file=sites/default/files/argo-db-tmp.sql.bak'", destPodName))
+		color.Cyan("Creating backup of %s before dropping existing database, saving to /var/www/argo-db-tmp.sql.bak", destination)
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'cd docroot && drush sql-dump --gzip --result-file=/var/www/argo-db-tmp.sql.bak'", destPodName))
 		if (err != nil) {
 			color.Red("Error backing up: %s", err)
 			os.Exit(1)
