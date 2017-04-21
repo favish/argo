@@ -64,6 +64,7 @@ func init() {
 	ProjectCmd.AddCommand(deleteCmd)
 	ProjectCmd.AddCommand(setEnvCmd)
 	ProjectCmd.AddCommand(updateCmd)
+	ProjectCmd.AddCommand(rollbackCmd)
 }
 
 func initProjectConfig() {
@@ -244,9 +245,17 @@ func helmUpgrade() error {
 	out, err := util.ExecCmdChainCombinedOut(command)
 	if (err != nil) {
 		color.Red(out)
-		os.Exit(1)
+		if (projectConfig.GetBool("rollback-on-failure")) {
+			color.Yellow("Your helm upgrade resulted in a failure, attempting to rollback...")
+			rollbackCmd.Run(nil, nil)
+			color.Yellow("Successfully rolled back attempted update, exiting with error.  You will want to correct this.")
+			os.Exit(1)
+		} else {
+			os.Exit(1)
+		}
 	} else if debugMode := viper.GetString("debug"); len(debugMode) > 0 {
 		color.Green(out)
 	}
 	return err
 }
+

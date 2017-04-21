@@ -11,9 +11,6 @@ var updateCmd = &cobra.Command{
 	Use:   	"update",
 	Short: 	"Update running argo project created via `argo deploy`.",
 	Run: func (cmd *cobra.Command, args []string) {
-
-		color.Cyan("In order to update this project's infra, updating your shell context to point to it...")
-
 		if approve := util.GetApproval(fmt.Sprintf("This will apply updated configuration to the %s infrastructure, are you sure?", projectConfig.GetString("environment"))); approve {
 			helmUpgrade()
 			color.Green("Project updated!")
@@ -21,4 +18,9 @@ var updateCmd = &cobra.Command{
 			return
 		}
 	},
+}
+
+func init() {
+	updateCmd.Flags().Bool("rollback-on-failure", false, "If true, attempt to rollback to recover from helm deployments that result in failures.")
+	projectConfig.BindPFlag("rollback-on-failure", updateCmd.Flags().Lookup("rollback-on-failure"))
 }
