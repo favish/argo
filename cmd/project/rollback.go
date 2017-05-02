@@ -18,7 +18,6 @@ var rollbackCmd = &cobra.Command{
 		command := fmt.Sprintf("helm list | grep %s | awk {'print $2'} | tr -d '\n'", projectName)
 		currentRevisionStr, _ := util.ExecCmdChain(command)
 		currentRevision, _ := strconv.Atoi(currentRevisionStr)
-		color.Red("current revision %s", currentRevision)
 		rollBackRevision := currentRevision - 1
 		rollBackRevisionStr := strconv.Itoa(rollBackRevision)
 
