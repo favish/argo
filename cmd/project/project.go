@@ -156,7 +156,7 @@ func (hv *HelmValues) appendValue(helmKey string, value string, required bool) {
 		}
 	} else {
 		if (viper.GetBool("debug")) {
-			color.Yellow("[debug] - Adding helm value %s for key %s", helmKey, value)
+			color.Yellow("[debug] - Setting helm key %s to %s", helmKey, value)
 		}
 		hv.values = append(hv.values, fmt.Sprintf("%s=%s", helmKey, value))
 	}
@@ -193,6 +193,9 @@ func helmUpgrade() error {
 	helmValues.appendValue("namespace", projectName, true)
 	helmValues.appendValue("environment_type", environment, true)
 	helmValues.appendValue("application.env", environment, true)
+
+	helmValues.appendProjectEnvValue("hostname", "hostname", environment, false)
+	helmValues.appendProjectEnvValue("redirect-www", "redirect-www", environment, false)
 
 	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
 	helmValues.appendProjectValue("blackfire.server_id", "BLACKFIRE_SERVER_ID", false)
@@ -235,10 +238,6 @@ func helmUpgrade() error {
 	if environment == "dev" {
 		helmValues.appendProjectValue("dev.basic_auth", "environments.dev.basic-auth", true)
 		helmValues.appendProjectValue("dev.basic_auth_node_port", "environments.dev.basic-auth-node-port", true)
-	}
-
-	if environment == "prod" {
-		helmValues.appendProjectEnvValue("hostname", "hostname", "prod", true)
 	}
 
 	command := fmt.Sprintf("helm upgrade --install %s %s %s --set %s", waitFlag, projectName, projectConfig.GetString("chart"), strings.Join(helmValues.values, ","))
