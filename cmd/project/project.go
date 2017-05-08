@@ -195,7 +195,7 @@ func helmUpgrade() error {
 	helmValues.appendValue("application.env", environment, true)
 
 	helmValues.appendProjectEnvValue("hostname", "hostname", environment, false)
-	helmValues.appendProjectEnvValue("redirect-www", "redirect-www", environment, false)
+	helmValues.appendProjectEnvValue("redirect_www", "redirect-www", environment, false)
 
 	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
 	helmValues.appendProjectValue("blackfire.server_id", "BLACKFIRE_SERVER_ID", false)
