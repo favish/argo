@@ -178,7 +178,7 @@ func validateArgs(args []string) {
 }
 
 func getFileSyncPaths(args []string) (string, string) {
-	projectName := projectConfig.GetString("project-name")
+	projectName := projectConfig.GetString("project_name")
 	locations := map[string]string {
 		"dev": fmt.Sprintf("%s:%s%s/", viper.GetString("environments.dev.files-instance"), "/mnt/disks/", projectName),
 		"prod": fmt.Sprintf("%s:%s%s/", viper.GetString("environments.prod.files-instance"), "/mnt/disks/", projectName),

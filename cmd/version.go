@@ -16,12 +16,12 @@ var versionCmd = &cobra.Command{
 	Use:   	"version",
 	Short: 	"Get the current version of argo.",
 	Run: func (cmd *cobra.Command, args []string) {
-	if (len(Version) > 0 && len(Build) > 0) {
-	fmt.Printf("Version: %s \n", Version);
-	fmt.Printf("Build: %s \n", Build);
-	fmt.Printf("GOOS: %s, GOARCH=%s", runtime.GOOS, runtime.GOARCH)
-	} else {
-	color.Yellow("Are you running argo via `go run ...`?  No version detected from build params!")
-	}
+		if (len(Version) > 0 && len(Build) > 0) {
+			fmt.Printf("Version: %s \n", Version);
+			fmt.Printf("Build: %s \n", Build);
+			fmt.Printf("GOOS: %s, GOARCH=%s", runtime.GOOS, runtime.GOARCH)
+		} else {
+			color.Yellow("Are you running argo via `go run ...`?  No version detected from build params!")
+		}
 	},
 }

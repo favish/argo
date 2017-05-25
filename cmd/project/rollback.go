@@ -14,7 +14,7 @@ var rollbackCmd = &cobra.Command{
 	Short: 	"Undo the last applied update.",
 	Long: 	"If, after running an argo project update you decide to go backwards, your can run this.  Will also be executed if --rollback-on-failure supplied to argo update",
 	Run: func (cmd *cobra.Command, args []string) {
-		projectName := projectConfig.GetString("project-name")
+		projectName := projectConfig.GetString("project_name")
 		command := fmt.Sprintf("helm list | grep %s | awk {'print $2'} | tr -d '\n'", projectName)
 		currentRevisionStr, _ := util.ExecCmdChain(command)
 		currentRevision, _ := strconv.Atoi(currentRevisionStr)

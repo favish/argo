@@ -68,7 +68,7 @@ o . o o.o
 ^^^^^^^^^^^^^^^^^^^^
 		`)
 		if (projectConfig.GetString("environment") == "local") {
-			color.Cyan("Local site available at: http://local.%s.com \n \n", projectConfig.GetString("project-name"))
+			color.Cyan("Local site available at: http://local.%s.com \n \n", projectConfig.GetString("project_name"))
 		}
 		color.Green("Your project infrastructure has been created on the %s environment!", projectConfig.GetString("environment"))
 		color.Green("This has bootstrapped a kubernetes environment, normal kubectl commands will allow you to interrogate your new infra.")
@@ -111,7 +111,7 @@ func setImagePullSecret() {
 
 // Add or update an entry to access this project locally into /etc/hosts
 func addEtcHosts() {
-	projectName := projectConfig.GetString("project-name")
+	projectName := projectConfig.GetString("project_name")
 
 	if approve := util.GetApproval("Argo can add an /etc/hosts entry for this project for you, would you like to do this?"); approve {
 		color.Cyan("Adding/updating entry to /etc/hosts.  Will require sudo permissions...")

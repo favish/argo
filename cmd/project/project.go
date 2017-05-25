@@ -5,6 +5,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/fatih/color"
 	"github.com/favish/argo/util"
+	"github.com/favish/argo/schemas"
 	"github.com/favish/argo/cmd/components"
 	"os"
 	"strings"
@@ -20,7 +21,7 @@ var ProjectCmd = &cobra.Command{
 	PersistentPreRun: func (cmd *cobra.Command, args []string) {
 		initProjectConfig()
 
-		projectName := projectConfig.GetString("project-name");
+		projectName := projectConfig.GetString("project_name");
 		if len(projectName) == 0 {
 			color.Red("You need to specify a project name in argo.yml!")
 			os.Exit(1)
@@ -84,15 +85,15 @@ func initProjectConfig() {
 
 // Setup values to use for gcloud and kubectl commands for specified environment
 func setKubectlConfig(environment string) {
-	projectName := projectConfig.GetString("project-name");
+	projectName := projectConfig.GetString("project_name");
 
 	var contextCluster string
 	if environment == "local" {
 		contextCluster = "minikube"
 	} else {
-		gcloudProject := viper.GetString(fmt.Sprintf("environments.%s.project", environment))
-		gcloudZone := viper.GetString(fmt.Sprintf("environments.%s.compute-zone", environment))
-		gcloudCluster := viper.GetString(fmt.Sprintf("environments.%s.cluster", environment))
+		gcloudCluster := viper.GetString(fmt.Sprintf("environments.%s.gcp.cluster", environment))
+		gcloudProject := viper.GetString(fmt.Sprintf("environments.%s.gcp.project", environment))
+		gcloudZone := viper.GetString(fmt.Sprintf("environments.%s.gcp.compute_zone", environment))
 
 		gcloudCmd := fmt.Sprintf("container clusters get-credentials %s --project=%s --zone=%s", gcloudCluster, gcloudProject, gcloudZone)
 
@@ -126,12 +127,11 @@ func setKubectlConfig(environment string) {
 	util.ExecCmd("kubectl", "config", "set-context", contextName, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextCluster), fmt.Sprintf("--namespace=%s", projectName))
 	util.ExecCmd("kubectl", "config", "use-context", contextName)
 	color.Cyan("Created new %s kubectl context and set to active.", contextName)
-
 }
 
 // Run a check to see if the project already exists in helm
 func checkExisting() bool {
-	projectName := projectConfig.GetString("project-name")
+	projectName := projectConfig.GetString("project_name")
 
 	color.Cyan("Ensuring existing helm project does not already exist...")
 	projectExists := false
@@ -175,69 +175,56 @@ func (hv *HelmValues) appendProjectEnvValue(helmKey string, projectKey string, e
 	hv.appendValue(helmKey, environmentValue, required)
 }
 
+// Helm upgrade is run on deploy and update
 func helmUpgrade() error {
-	projectName := projectConfig.GetString("project-name")
+	projectName := projectConfig.GetString("project_name")
 	environment := projectConfig.GetString("environment")
 
 	color.Cyan("Installing project chart via helm...")
 
 	var waitFlag string
 	if projectConfig.GetBool("wait") {
-		// Intended for CI, wait for updated infrastructure to apply fully so subsquent commands (drush) run against new infra
+		// Intended for CI, wait for updated infrastructure to apply fully so subsequent commands (drush) run against new infra
 		waitFlag = "--wait"
 		color.Cyan("Using wait, command will take a moment...")
 	}
 
 	var helmValues HelmValues
 
-	helmValues.appendValue("namespace", projectName, true)
-	helmValues.appendValue("environment_type", environment, true)
-	helmValues.appendValue("application.env", environment, true)
+	helmValues.appendValue("general.project_name", projectName, true);
+	helmValues.appendValue("general.environment_type", environment, true);
 
-	helmValues.appendProjectEnvValue("hostname", "hostname", environment, false)
-	helmValues.appendProjectEnvValue("redirect_www", "redirect-www", environment, false)
-
+	// These come from environment vars
 	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
 	helmValues.appendProjectValue("blackfire.server_id", "BLACKFIRE_SERVER_ID", false)
 	helmValues.appendProjectValue("blackfire.server_token", "BLACKFIRE_SERVER_TOKEN", false)
 	helmValues.appendProjectValue("blackfire.client_id", "BLACKFIRE_CLIENT_ID", false)
 	helmValues.appendProjectValue("blackfire.client_token", "BLACKFIRE_CLIENT_TOKEN", false)
 
+	// Add all keys to helm by iterating schema values
+	environmentKeys := schemas.DrupalSchema.AllKeys();
+	color.Yellow("&s", environmentKeys)
+	for _, key := range environmentKeys {
+		helmValues.appendProjectEnvValue(key, key, environment, schemas.DrupalSchema.GetBool(key))
+	}
+
+	// Local vs remote differences:
+	// TODO - catch up local - MEA
 	if environment == "local" {
 		helmValues.appendProjectValue("local.project_root", "PWD", true)
 		helmValues.appendProjectValue("local.theme_dir", "environments.local.theme_dir", true)
 		helmValues.appendProjectValue("mysql.db", "environments.local.mysql.db", true)
 		helmValues.appendProjectValue("mysql.pass", "environments.local.mysql.pass", true)
 		helmValues.appendProjectValue("mysql.user", "environments.local.mysql.user", true)
-
 		localIp, _ := util.ExecCmdChain("ifconfig | grep \"inet \" | grep -v 127.0.0.1 | awk '{print $2}' | sed -n 1p")
 		helmValues.appendValue("local.host_ip=%s", localIp, true)
 	} else {
-		cidrConfigValue := projectConfig.GetString(fmt.Sprintf("environments.%s.container-cidr", environment))
-		helmValues.appendValue("container_cidr", cidrConfigValue, true)
-
-		helmValues.appendProjectEnvValue("mysql.instance", "mysql.instance", environment, true)
-
-		helmValues.appendProjectEnvValue("mysql.db", "mysql.db", environment, true)
-
-		helmValues.appendProjectEnvValue("cron.host", "cron.host", environment, false)
-		helmValues.appendProjectEnvValue("cron.key", "cron.key", environment, false)
-
-		appImage := projectConfig.GetString(fmt.Sprintf("environments.%s.application-image", environment))
-		// Push using latest tag or CIRCLE_SHA1 if running in circle environment/is otherwise provided.
+		// Obtain the git commit from env vars if present in CircleCI
 		if circleSha := projectConfig.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {
-			appImage = fmt.Sprintf("%s:%s", appImage, circleSha)
-		} else {
-			appImage = fmt.Sprintf("%s:%s", appImage, "latest")
+			helmValues.appendValue("general.git_commit", circleSha, false)
 		}
-		helmValues.appendValue("application.image", appImage, true)
-
-		helmValues.appendProjectEnvValue("web_node_port", "web-node-port", environment, true)
-	}
-
-	if environment == "dev" {
-		helmValues.appendProjectValue("dev.basic_auth", "environments.dev.basic-auth", true)
-		helmValues.appendProjectValue("dev.basic_auth_node_port", "environments.dev.basic-auth-node-port", true)
+		// Drupal env should only ever be prod or dev, not local
+		helmValues.appendValue("applications.drupal.env", environment, false);
 	}
 
 	command := fmt.Sprintf("helm upgrade --install %s %s %s --set %s", waitFlag, projectName, projectConfig.GetString("chart"), strings.Join(helmValues.values, ","))
