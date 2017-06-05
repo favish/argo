@@ -20,7 +20,7 @@ var drupal = []byte(`
     redirect_www: false
   applications:
     basic_auth:
-      enabled: true
+      enabled: false
       b64_passwd: false
       node_port: false
     cron:
@@ -41,6 +41,9 @@ var drupal = []byte(`
         requests:
           cpu: false
           memory: false
+        limits:
+          cpu: false
+          memory: false
     mysql:
       cloudsql_instance: false
       db: true
@@ -50,6 +53,12 @@ var drupal = []byte(`
     nfs:
       enabled: true
       service_ip: false
+      requested_storage: false
+    redis:
+      resources:
+        requests:
+          cpu: false
+          memory: false
     varnish:
       node_port: true
     xdebug:
