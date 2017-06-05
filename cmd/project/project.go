@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"fmt"
+	"regexp"
 )
 
 var ProjectCmd = &cobra.Command{
@@ -20,6 +21,13 @@ var ProjectCmd = &cobra.Command{
 	// Run before every child command executes run
 	PersistentPreRun: func (cmd *cobra.Command, args []string) {
 		initProjectConfig()
+
+		chart := projectConfig.GetString("chart");
+		oldChart, _ := regexp.MatchString("drupal-8-0", chart)
+		if (oldChart) {
+			color.Red("This chart's version is now unsupported.  Either upgrade the project to >1.0.0 or switch to an argo version below 0.11.0")
+			os.Exit(1)
+		}
 
 		projectName := projectConfig.GetString("project_name");
 		if len(projectName) == 0 {
@@ -113,12 +121,6 @@ func setKubectlConfig(environment string) {
 		contextCluster = fmt.Sprintf("gke_%s_%s_%s", gcloudProject, gcloudZone, gcloudCluster)
 	}
 
-	// If the namespace does not exist, create one.
-	if err := util.ExecCmd("kubectl", "get", "namespace", projectName); err != nil {
-		util.ExecCmd("kubectl", "create", "namespace", projectName)
-		color.Cyan("Created new %s kubernetes namespace.", projectName)
-	}
-
 	color.Cyan("Recreating kubectl context and setting to active...")
 
 	contextName := fmt.Sprintf("%s-%s", projectName, environment)
@@ -127,6 +129,13 @@ func setKubectlConfig(environment string) {
 	util.ExecCmd("kubectl", "config", "set-context", contextName, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextCluster), fmt.Sprintf("--namespace=%s", projectName))
 	util.ExecCmd("kubectl", "config", "use-context", contextName)
 	color.Cyan("Created new %s kubectl context and set to active.", contextName)
+
+	// If the namespace does not exist, create one.
+	if err := util.ExecCmd("kubectl", "get", "namespace", projectName); err != nil {
+		util.ExecCmd("kubectl", "create", "namespace", projectName)
+		color.Cyan("Created new %s kubernetes namespace.", projectName)
+	}
+
 }
 
 // Run a check to see if the project already exists in helm
@@ -203,7 +212,6 @@ func helmUpgrade() error {
 
 	// Add all keys to helm by iterating schema values
 	environmentKeys := schemas.DrupalSchema.AllKeys();
-	color.Yellow("&s", environmentKeys)
 	for _, key := range environmentKeys {
 		helmValues.appendProjectEnvValue(key, key, environment, schemas.DrupalSchema.GetBool(key))
 	}
@@ -211,13 +219,10 @@ func helmUpgrade() error {
 	// Local vs remote differences:
 	// TODO - catch up local - MEA
 	if environment == "local" {
-		helmValues.appendProjectValue("local.project_root", "PWD", true)
-		helmValues.appendProjectValue("local.theme_dir", "environments.local.theme_dir", true)
-		helmValues.appendProjectValue("mysql.db", "environments.local.mysql.db", true)
-		helmValues.appendProjectValue("mysql.pass", "environments.local.mysql.pass", true)
-		helmValues.appendProjectValue("mysql.user", "environments.local.mysql.user", true)
+		helmValues.appendProjectValue("applications.drupal.local.project_root", "PWD", true)
+		helmValues.appendProjectValue("applications.drupal.local.theme_dir", "environments.local.applications.drupal.local.theme_dir", true)
 		localIp, _ := util.ExecCmdChain("ifconfig | grep \"inet \" | grep -v 127.0.0.1 | awk '{print $2}' | sed -n 1p")
-		helmValues.appendValue("local.host_ip=%s", localIp, true)
+		helmValues.appendValue("applications.xdebug.host_ip=%s", localIp, true)
 	} else {
 		// Obtain the git commit from env vars if present in CircleCI
 		if circleSha := projectConfig.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {

@@ -10,10 +10,10 @@ import (
 // True/false for required values
 var drupal = []byte(`
   gcp:
-    project: true
-    cluster: true
-    region: true
-    compute_zone: true
+    project: false
+    cluster: false
+    region: false
+    compute_zone: false
   network:
     hostname: false
     container_cidr: false
@@ -33,7 +33,7 @@ var drupal = []byte(`
         max: false
         targetCpu: false
       env: false
-      image: true
+      image: false
       local:
         project_root: false
         theme_dir: false
@@ -60,7 +60,7 @@ var drupal = []byte(`
           cpu: false
           memory: false
     varnish:
-      node_port: true
+      node_port: false
     xdebug:
       host_ip: false
 `)
@@ -71,7 +71,7 @@ func init() {
 	DrupalSchema.SetConfigType("yaml")
 	err := DrupalSchema.ReadConfig(bytes.NewBuffer(drupal))
 	if (err != nil) {
-		color.Red("%s", err)
+		color.Red("Error in schema for drupal: %s", err)
 		os.Exit(1)
 	}
 }
