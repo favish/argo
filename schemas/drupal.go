@@ -18,6 +18,7 @@ var drupal = []byte(`
     hostname: false
     container_cidr: false
     redirect_www: false
+    use_ingress: false
   applications:
     basic_auth:
       enabled: false
@@ -61,6 +62,8 @@ var drupal = []byte(`
           memory: false
     varnish:
       node_port: false
+      secret: false
+      secondary_host: false
     xdebug:
       host_ip: false
 `)
