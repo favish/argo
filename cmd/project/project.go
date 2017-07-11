@@ -219,10 +219,16 @@ func helmUpgrade() error {
 	// Local vs remote differences:
 	// TODO - catch up local - MEA
 	if environment == "local" {
-		helmValues.appendProjectValue("applications.drupal.local.project_root", "PWD", true)
+		// Using https://github.com/mstrzele/minikube-nfs
+		// Creates a persistent volume with contents of /Users mounted from an nfs share from host
+		// So rather than using /Users directly, grab the path within the project
+		// Check the helm chart mounts
+		projectPath, _ := util.ExecCmdChain("printf ${PWD#/Users/}")
+		color.Green(projectPath);
+		helmValues.appendValue("applications.drupal.local.project_root", projectPath, true)
 		helmValues.appendProjectValue("applications.drupal.local.theme_dir", "environments.local.applications.drupal.local.theme_dir", true)
 		localIp, _ := util.ExecCmdChain("ifconfig | grep \"inet \" | grep -v 127.0.0.1 | awk '{print $2}' | sed -n 1p")
-		helmValues.appendValue("applications.xdebug.host_ip=%s", localIp, true)
+		helmValues.appendValue("applications.xdebug.host_ip", localIp, true)
 	} else {
 		// Obtain the git commit from env vars if present in CircleCI
 		if circleSha := projectConfig.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {

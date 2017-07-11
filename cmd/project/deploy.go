@@ -48,8 +48,7 @@ var createCmd = &cobra.Command{
 		}
 
 		if (projectConfig.GetString("environment") == "local") {
-			setImagePullSecret()
-			addEtcHosts()
+			setupLocalEnvironment()
 		}
 
 		if err := helmUpgrade(); err != nil {
@@ -75,6 +74,25 @@ o . o o.o
 		color.Yellow("If this is your fist time working with this project, use `argo project sync` to obtain databases and files.")
 		color.Yellow("It may take a few moments for the infrastructure to spin up.")
 	},
+}
+
+func setupLocalEnvironment() {
+	setImagePullSecret()
+	addEtcHosts()
+	createSSLCert()
+}
+
+func createSSLCert() {
+	// Cert should exist as a secret, so if it's already there continue
+	if out, _ := util.ExecCmdChain("kubectl get secret tls-secret 2>&1 >/dev/null | grep 'not found'"); len(out) <= 0 {
+		return
+	}
+	hostname := projectConfig.GetString("environments.local.network.hostname")
+	color.Yellow("Generating self-signed HTTPS cert...")
+	util.ExecCmdChain(fmt.Sprintf("openssl req -x509 -newkey rsa:2048 -keyout argo-key.pem -out argo-cert.pem -days 365 -nodes -subj '/CN=%s'", hostname))
+	util.ExecCmdChain("kubectl create secret tls tls-secret --cert=argo-cert.pem --key=argo-key.pem")
+	util.ExecCmd("rm", "argo-cert.pem")
+	util.ExecCmd("rm", "argo-key.pem")
 }
 
 // Local environments will need to use current developer's gcloud credentials
