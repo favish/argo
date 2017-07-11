@@ -52,7 +52,7 @@ var filesCmd = &cobra.Command{
 
 var dbCmd = &cobra.Command{
 	Use: "db",
-	Short: "Sync database FROM > TO.",
+	Short: "Sync database FROM > TO.  Requires functional database on both targets (run drush site-install if needed).",
 	Long: `Use this command to retrieve or push your database to and from remote environments.
 	Ex. "argo project sync db dev local" brings dev db to your machine.
 	Light wrapper around drush, implementation similar to drush sql-sync in a world without ssh.
@@ -85,7 +85,7 @@ var dbCmd = &cobra.Command{
 		// Point kubectl at FROM, dump database to local temp file
 		setKubectlConfig(source)
 		// Get the container running application
-		sourcePodName, err := util.ExecCmdChain("kubectl get pods --output='name' --selector='service=app' | awk -F'/' '{print $2}' | tr -d '\n'")
+		sourcePodName, err := util.ExecCmdChain("kubectl get pods --selector='service=cloud-command' | grep 'Running' | awk '{print $1}' | tr -d '\n'")
 		if (err != nil) {
 			color.Red("Error getting pod name: %s", err)
 			os.Exit(1)
@@ -93,7 +93,7 @@ var dbCmd = &cobra.Command{
 
 		// Dump database on FROM environment
 		color.Cyan("Creating a database dump on FROM container...")
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'cd docroot && drush sql-dump --gzip --result-file=/tmp/argo-db-tmp.sql'", sourcePodName))
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sql-dump --gzip --result-file=/tmp/argo-db-tmp.sql'", sourcePodName))
 		if (err != nil) {
 			color.Red("Error getting dump: %s", err)
 			os.Exit(1)
@@ -120,24 +120,27 @@ var dbCmd = &cobra.Command{
 		setKubectlConfig(destination)
 
 		// Get the container running application on destination
-		destPodName, err := util.ExecCmdChain("kubectl get pods --output='name' --selector='service=app' | awk -F'/' '{print $2}' | tr -d '\n'")
+		destPodName, err := util.ExecCmdChain("kubectl get pods --selector='service=cloud-command' | grep 'Running' | awk '{print $1}' | tr -d '\n'")
 		if (err != nil) {
 			color.Red("Error getting pod name: %s", err)
 			os.Exit(1)
 		}
 
 		color.Cyan("Creating backup of %s before dropping existing database, saving to /var/www/argo-db-tmp.sql.bak", destination)
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'cd docroot && drush sql-dump --gzip --result-file=/var/www/argo-db-tmp.sql.bak'", destPodName))
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sql-dump --gzip --result-file=/var/www/argo-db-tmp.sql.bak'", destPodName))
 		if (err != nil) {
 			color.Red("Error backing up: %s", err)
 			os.Exit(1)
 		}
 
 		color.Cyan("Dropping %s database...", destination)
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'cd docroot && drush sql-drop -y'", destPodName))
+		if approve := util.GetApproval("YOU ARE NOW DROPPING THE DESTINATION DATABASE TO REPLACE WITH DUMP, ARE YOU SURE?"); !approve {
+			return
+		}
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sql-drop -y'", destPodName))
 
 		color.Cyan("Importing database dump to %s environment, may take a few moments...", destination)
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s < /tmp/argo-db-tmp.sql -- /bin/bash -c 'cd docroot && drush sqlc'", destPodName))
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s < /tmp/argo-db-tmp.sql -- /bin/bash -c 'drush sqlc'", destPodName))
 		if (err != nil) {
 			color.Red("Error importing database: %s", err)
 			os.Exit(1)
@@ -146,8 +149,7 @@ var dbCmd = &cobra.Command{
 		err = util.ExecCmd("rm", "/tmp/argo-db-tmp.sql")
 		err = util.ExecCmd("rm", "/tmp/argo-db-tmp.sql.gz")
 		if (err != nil) {
-			color.Red("Error removing temp database: %s", err)
-			os.Exit(1)
+			color.Yellow("Error removing temp database: %s", err)
 		}
 	},
 }
