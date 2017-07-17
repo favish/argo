@@ -87,7 +87,7 @@ func initProjectConfig() {
 	// Error if no yaml found
 	if err := projectConfig.ReadInConfig(); err != nil {
 		color.Red("%s",err)
-		color.Red("Unable to locate .argo/config.yml!")
+		color.Red("Error locating or parsing .argo/config.yml!")
 		os.Exit(1)
 	}
 
@@ -108,7 +108,7 @@ func initProjectConfig() {
 	envConfig.AddConfigPath("./.argo/environments")
 	if err := envConfig.ReadInConfig(); err != nil {
 		color.Red("%s",err)
-		color.Red("Unable to locate this environments helm value file (should be ./argo/environments/$ENV_NAME.yaml!")
+		color.Red("Error locating or parsing this environment's helm value file (should be ./argo/environments/$ENV_NAME.yaml!")
 		os.Exit(1)
 	}
 }
@@ -247,13 +247,33 @@ func helmUpgrade() error {
 		helmValues.appendValue("applications.drupal.env", environment, false)
 	}
 
+	// If hostname_template is specified, subsitute in projectname-environment name and set as hostname
+	hostnameTpl := envConfig.GetString("network.hostname_template")
+	if (len(hostnameTpl) > 0) {
+		var hostname string
+		if (environment == "dev") {
+			hostname = fmt.Sprintf(hostnameTpl, environment)
+		} else {
+			hostnamePrefix := fmt.Sprintf("%s-%s", projectName, environment)
+			hostname = fmt.Sprintf(hostnameTpl, hostnamePrefix)
+		}
+		helmValues.appendValue("network.hostname", hostname, true)
+	}
+
+	if (envConfig.GetBool("applications.mysql.derive_db")) {
+		databaseName := fmt.Sprintf("%s_%s", projectName, environment)
+		databaseName = strings.Replace(databaseName, "-", "_", -1)
+		helmValues.appendValue("applications.mysql.db", databaseName, true)
+	}
+
 	chartConfigPath := fmt.Sprintf("charts.%s",envConfig.GetString("ConfigType"))
 	helmChartPath := projectConfig.GetString(chartConfigPath)
 
-	command := fmt.Sprintf("helm upgrade --install --values %s %s %s %s --set %s",
+	command := fmt.Sprintf("helm upgrade --install --values %s %s %s-%s %s --set %s",
 		envConfig.ConfigFileUsed(),
 		waitFlag,
 		projectName,
+		environment,
 		helmChartPath,
 		strings.Join(helmValues.values, ","))
 	out, err := util.ExecCmdChainCombinedOut(command)
