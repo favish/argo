@@ -22,9 +22,9 @@ var ProjectCmd = &cobra.Command{
 		initProjectConfig()
 
 		chart := projectConfig.GetString("chart");
-		oldChart, _ := regexp.MatchString("drupal-8-0", chart)
+		oldChart, _ := regexp.MatchString("drupal-8-1", chart)
 		if (oldChart) {
-			color.Red("This chart's version is now unsupported.  Either upgrade the project to >1.0.0 or switch to an argo version below 0.11.0")
+			color.Red("This chart's version is now unsupported.  Either upgrade the project to >2.0.0 or switch to an argo version below 1.0.0")
 			os.Exit(1)
 		}
 
