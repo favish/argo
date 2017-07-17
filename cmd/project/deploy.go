@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/viper"
 	"bytes"
 	"os"
+	"strings"
 )
 
 var createCmd = &cobra.Command{
@@ -51,6 +52,11 @@ var createCmd = &cobra.Command{
 			setupLocalEnvironment()
 		}
 
+		if (len(projectConfig.GetString("clone-from")) > 0) {
+			color.Cyan("Creating this deployment by cloning %s", projectConfig.GetString("clone-from"))
+			cloneEnvironment(projectConfig.GetString("clone-from"))
+		}
+
 		if err := helmUpgrade(); err != nil {
 			color.Red("Error installing chart via helm!")
 			return
@@ -74,6 +80,53 @@ o . o o.o
 		color.Yellow("If this is your fist time working with this project, use `argo project sync` to obtain databases and files.")
 		color.Yellow("It may take a few moments for the infrastructure to spin up.")
 	},
+}
+
+func init() {
+	createCmd.Flags().String("clone-from", "", "(optional) Choose an environment from which to clone the database, ssl cert, and files from when starting this environment.")
+	projectConfig.BindPFlag("clone-from", createCmd.Flags().Lookup("clone-from"))
+}
+
+func cloneEnvironment(sourceEnv string) {
+
+	if approve := util.GetApproval("Cloning environments is only supported on targets in the same cluster, continue?"); !approve {
+		panic("Not cloning, re-deploy without this flag.")
+	}
+
+	projectName := projectConfig.GetString("project_name")
+	destEnv := projectConfig.GetString("environment")
+
+	sourceNamespace := fmt.Sprintf("%s-%s", projectName, sourceEnv)
+	destNamespace := fmt.Sprintf("%s-%s", projectName, destEnv)
+
+	sourceDisk := fmt.Sprintf("%s-drupal-default-files", sourceNamespace)
+	destDisk := fmt.Sprintf("%s-drupal-default-files", destNamespace)
+
+	// Start by cloning the source persistent disk
+	// Name snapshot destNamespace name (projectname-environment)
+	color.Cyan("Cloning drupal-default-files disk...")
+	util.ExecCmd("gcloud", "compute", "disks", "snapshot", sourceDisk, fmt.Sprintf("--snapshot-names=%s", destDisk))
+	util.ExecCmd("gcloud", "compute", "disks", "create", destDisk, fmt.Sprintf("--source-snapshot=%s", destDisk))
+
+	// Now grab the source environment's tls-secret and recreate here
+	color.Cyan("Cloning TLS secret...")
+	util.ExecCmdChain(fmt.Sprintf("kubectl get secret tls-secret -o=yaml --export --namespace=%s > /tmp/argo-tls.yaml", sourceNamespace))
+	util.ExecCmd("kubectl", "create", "-f", "/tmp/argo-tls.yaml")
+	util.ExecCmd("rm", "/tmp/argo-tls.yaml")
+
+	// Clone cloudsql-oauth-credentials if mysql is set to use it
+	if (envConfig.GetString("applications.mysql.type") == "cloudsql") {
+		color.Cyan("Cloning cloudsql credentials...")
+		util.ExecCmdChain(fmt.Sprintf("kubectl get secret cloudsql-oauth-credentials -o=yaml --export --namespace=%s > /tmp/argo-cloudsql.yaml", sourceNamespace))
+		util.ExecCmd("kubectl", "create", "-f", "/tmp/argo-cloudsql.yaml")
+		util.ExecCmd("rm", "/tmp/argo-cloudsql.yaml")
+	}
+
+	color.Cyan("Cloning database...")
+	cloudControlPod, _ := util.ExecCmdChain(fmt.Sprintf("kubectl get pods --selector='service=cloud-command' --namespace=%s | grep 'Running' | awk '{print $1}' | tr -d '\n'", sourceNamespace))
+	newDatabaseName := strings.Replace(destNamespace, "-", "_", -1)
+	util.ExecCmdChain(fmt.Sprintf("kubectl --namespace=%s exec -it %s /opt/clone-database.sh %s", sourceNamespace, cloudControlPod, newDatabaseName))
+
 }
 
 func setupLocalEnvironment() {
