@@ -46,8 +46,6 @@ var ProjectCmd = &cobra.Command{
 			}
 		}
 
-		setKubectlConfig(projectConfig.GetString("environment"))
-
 		// Warn if blackfire environment not setup
 		if blackFire := projectConfig.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
 			c := color.New(color.FgHiYellow).Add(color.Bold)
@@ -64,7 +62,7 @@ var projectConfig = viper.New()
 var envConfig = viper.New()
 
 func init() {
-	ProjectCmd.PersistentFlags().StringP("environment", "e", "local", "Define which environment to apply argo commands.  This is generally the git branch, will be the namespace prefix for this deployment.")
+	ProjectCmd.PersistentFlags().StringP("environment", "e", "", "Define which environment to apply argo commands.  This is generally the git branch, will be the namespace prefix for this deployment.")
 	projectConfig.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
 
 	ProjectCmd.PersistentFlags().Bool("wait", false, "If true, apply --wait to helm commands.  See helm documentation for more details.")
@@ -91,41 +89,45 @@ func initProjectConfig() {
 		os.Exit(1)
 	}
 
-	// Grab the configuration for the intended environment.
-	// To support multi-dev situations, environments that aren't local/dev/prod fallback to using the dev configuration
-	definedEnvironments := map[string]bool {
+	envConfig = setupEnvConfigViper(projectConfig.GetString("environment"))
+}
+
+// Grab the configuration for the intended environment.
+// To support multi-dev situations, environments that aren't local/dev/prod fallback to using the dev configuration
+func setupEnvConfigViper(environmentFlag string) *viper.Viper {
+	var definedEnvironments = map[string]bool {
 		"local": true,
 		"dev": true,
 		"prod": true,
 	}
-	environmentFlag := projectConfig.GetString("environment");
-	envConfig.SetDefault("ConfigType", "dev")
+	config := viper.New();
+	config.SetDefault("ConfigType", "dev")
 	if definedEnvironments[environmentFlag] {
-		envConfig.Set("ConfigType", environmentFlag)
+		config.Set("ConfigType", environmentFlag)
 	}
-
-	envConfig.SetConfigName(envConfig.GetString("ConfigType"))
-	envConfig.AddConfigPath("./.argo/environments")
-	if err := envConfig.ReadInConfig(); err != nil {
+	config.SetConfigName(config.GetString("ConfigType"))
+	config.AddConfigPath("./.argo/environments")
+	if err := config.ReadInConfig(); err != nil {
 		color.Red("%s",err)
-		color.Red("Error locating or parsing this environment's helm value file (should be ./argo/environments/$ENV_NAME.yaml!")
+		color.Red("Error locating or parsing %s env's helm value file (should be ./argo/environments/%s.yaml!", config.GetString("ConfigType"))
 		os.Exit(1)
 	}
+	config.Set("namespace", fmt.Sprintf("%s-%s", projectConfig.GetString("project_name"), environmentFlag))
+	return config
 }
-
 
 // Setup values to use for gcloud and kubectl commands for specified environment
 func setKubectlConfig(environment string) {
-	projectName := projectConfig.GetString("project_name")
-	var namespace = fmt.Sprintf("%s-%s", projectName, projectConfig.GetString("environment"))
+	currentEnvConfig := setupEnvConfigViper(environment)
+	var namespace = currentEnvConfig.GetString("namespace")
 
 	var contextCluster string
 	if environment == "local" {
 		contextCluster = "minikube"
 	} else {
-		gcloudCluster := envConfig.GetString("gcp.cluster")
-		gcloudProject := envConfig.GetString("gcp.project")
-		gcloudZone := envConfig.GetString("gcp.compute_zone")
+		gcloudCluster := currentEnvConfig.GetString("gcp.cluster")
+		gcloudProject := currentEnvConfig.GetString("gcp.project")
+		gcloudZone := currentEnvConfig.GetString("gcp.compute_zone")
 
 		gcloudCmd := fmt.Sprintf("container clusters get-credentials %s --project=%s --zone=%s", gcloudCluster, gcloudProject, gcloudZone)
 
@@ -157,19 +159,23 @@ func setKubectlConfig(environment string) {
 	// If the namespace does not exist, create one.
 
 	if err := util.ExecCmd("kubectl", "get", "namespace", namespace); err != nil {
-		util.ExecCmd("kubectl", "create", "namespace", namespace)
+		err := util.ExecCmd("kubectl", "create", "namespace", namespace)
+		if (err != nil) {
+			color.Red("Error creating namespace!")
+			os.Exit(1)
+		}
 		color.Cyan("Created new %s kubernetes namespace.", namespace)
 	}
-
 }
 
 // Run a check to see if the project already exists in helm
 func checkExisting() bool {
 	projectName := projectConfig.GetString("project_name")
+	environment := projectConfig.GetString("environment")
 
 	color.Cyan("Ensuring existing helm project does not already exist...")
 	projectExists := false
-	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s | grep 'STATUS: DEPLOYED'", projectName)); len(out) > 0 {
+	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s-%s | grep 'STATUS: DEPLOYED'", projectName, environment)); len(out) > 0 {
 		color.Yellow(out)
 		projectExists = true
 	}
@@ -252,7 +258,7 @@ func helmUpgrade() error {
 	if (len(hostnameTpl) > 0) {
 		var hostname string
 		if (environment == "dev") {
-			hostname = fmt.Sprintf(hostnameTpl, environment)
+			hostname = fmt.Sprintf(hostnameTpl, projectName)
 		} else {
 			hostnamePrefix := fmt.Sprintf("%s-%s", projectName, environment)
 			hostname = fmt.Sprintf(hostnameTpl, hostnamePrefix)
