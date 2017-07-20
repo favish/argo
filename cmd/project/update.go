@@ -12,12 +12,9 @@ var updateCmd = &cobra.Command{
 	Use:   	"update",
 	Short: 	"Update running argo project created via `argo deploy`.",
 	Run: func (cmd *cobra.Command, args []string) {
-		// Break if local does not yet exist, few extra configuration steps for that
 		if exists := checkExisting(); !exists {
-			if (projectConfig.GetString("environment") == "local") {
-				color.Red("Project does not exist yet, try running `argo project deploy` instead.")
-				os.Exit(0)
-			}
+			color.Red("Project does not exist yet, try running `argo project deploy` instead.")
+			os.Exit(0)
 		}
 		setKubectlConfig(projectConfig.GetString("environment"))
 
