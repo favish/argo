@@ -12,10 +12,16 @@ import (
 
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Update local copies of persistent data to match remote dev.",
+	Short: "Sync files and database SOURCE > DESTINATION.",
 	Long: `
-		Sync local copies of remote persistent data (user files/database) to local argo environment.
+		Sync files and database SOURCE > DESTINATION.
 	`,
+	Run: func(cmd *cobra.Command, args []string) {
+		validateArgs(args)
+		color.Yellow("The base `sync` command updates the database & files together.  You may choose to do them separately via sub-commands.")
+		filesCmd.Run(cmd, args)
+		dbCmd.Run(cmd, args)
+	},
 }
 
 var filesCmd = &cobra.Command{

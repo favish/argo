@@ -74,6 +74,7 @@ func init() {
 	ProjectCmd.AddCommand(setEnvCmd)
 	ProjectCmd.AddCommand(updateCmd)
 	ProjectCmd.AddCommand(rollbackCmd)
+	ProjectCmd.AddCommand(existsCmd)
 }
 
 func initProjectConfig() {
@@ -155,17 +156,6 @@ func setKubectlConfig(environment string) {
 	util.ExecCmd("kubectl", "config", "set-context", contextName, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextCluster), fmt.Sprintf("--namespace=%s", namespace))
 	util.ExecCmd("kubectl", "config", "use-context", contextName)
 	color.Cyan("Created new %s kubectl context and set to active.", contextName)
-
-	// If the namespace does not exist, create one.
-
-	if err := util.ExecCmd("kubectl", "get", "namespace", namespace); err != nil {
-		err := util.ExecCmd("kubectl", "create", "namespace", namespace)
-		if (err != nil) {
-			color.Red("Error creating namespace!")
-			os.Exit(1)
-		}
-		color.Cyan("Created new %s kubernetes namespace.", namespace)
-	}
 }
 
 // Run a check to see if the project already exists in helm
