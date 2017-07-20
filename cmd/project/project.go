@@ -265,7 +265,7 @@ func helmUpgrade() error {
 	chartConfigPath := fmt.Sprintf("charts.%s",envConfig.GetString("ConfigType"))
 	helmChartPath := projectConfig.GetString(chartConfigPath)
 
-	command := fmt.Sprintf("helm upgrade --install --values %s %s %s-%s %s --set %s",
+	command := fmt.Sprintf("helm upgrade --values %s %s %s-%s %s --set %s",
 		envConfig.ConfigFileUsed(),
 		waitFlag,
 		projectName,
