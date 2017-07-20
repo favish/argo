@@ -18,66 +18,6 @@ var syncCmd = &cobra.Command{
 	`,
 }
 
-var secretsCmd = &cobra.Command{
-	Use: "secrets",
-	Short: "Duplicate TLS/CloudSQL secrets on SOURCE to DESTINATION",
-	Long: `Clones the tls-secret and cloudsql-oauth-credentials`,
-	Run: func(cmd *cobra.Command, args [] string) {
-		validateArgs(args)
-
-		srcEnv := args[0]
-		destEnv := args[1]
-
-		if approve := util.GetApproval(fmt.Sprintf("This will sync secrets from %s to %s, proceed?", srcEnv, destEnv)); !approve {
-			color.Red("Skipping sync.")
-			os.Exit(1)
-		}
-
-		var createTLS = false
-		var createSQL = false
-		color.Cyan("Checking for existing secrets...")
-		setKubectlConfig(destEnv)
-
-		if _, err := util.ExecCmdChain("kubectl get secrets | grep tls-secret"); err != nil {
-			createTLS = true
-		} else {
-			color.Yellow("Found tls-secret, skipping creation")
-		}
-
-		if _, err := util.ExecCmdChain("kubectl get secrets | grep cloudsql-oauth-credentials"); err != nil {
-			createSQL = true
-		} else {
-			color.Yellow("Found cloudsql-oauth-credentials, skipping creation")
-		}
-
-
-		if (createTLS) {
-			// Now grab the source environment's tls-secret and recreate here
-			color.Cyan("Obtaining TLS secret from source...")
-			setKubectlConfig(srcEnv)
-			util.ExecCmdChain("kubectl get secret tls-secret -o=yaml --export > /tmp/argo-tls.yaml")
-			color.Cyan("Creating TLS secret on dest...")
-			setKubectlConfig(destEnv)
-			util.ExecCmd("kubectl", "create", "-f", "/tmp/argo-tls.yaml")
-			util.ExecCmd("rm", "/tmp/argo-tls.yaml")
-		}
-
-		// Clone cloudsql-oauth-credentials if mysql is set to use it
-		if (createSQL) {
-			color.Cyan("Obtaining cloudsql credentials from source...")
-			setKubectlConfig(srcEnv)
-			util.ExecCmdChain("kubectl get secret cloudsql-oauth-credentials -o=yaml --export > /tmp/argo-cloudsql.yaml")
-			color.Cyan("Creating cloudsql credentials on dest...")
-			setKubectlConfig(destEnv)
-			util.ExecCmd("kubectl", "create", "-f", "/tmp/argo-cloudsql.yaml")
-			util.ExecCmd("rm", "/tmp/argo-cloudsql.yaml")
-		}
-
-		color.Cyan("Done, exiting.")
-
-	},
-}
-
 var filesCmd = &cobra.Command{
 	Use: "files",
 	Short: "Sync files SOURCE > DESTINATION.",
