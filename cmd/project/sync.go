@@ -29,7 +29,8 @@ var secretsCmd = &cobra.Command{
 		destEnv := args[1]
 
 		if approve := util.GetApproval(fmt.Sprintf("This will sync secrets from %s to %s, proceed?", srcEnv, destEnv)); !approve {
-			panic("Skipping sync.")
+			color.Red("Skipping sync.")
+			os.Exit(1)
 		}
 
 		var createTLS = false
@@ -88,19 +89,26 @@ var filesCmd = &cobra.Command{
 		destEnv := args[1]
 
 		if approve := util.GetApproval(fmt.Sprintf("This will sync files from %s to %s, proceed?", srcEnv, destEnv)); !approve {
-			panic("Skipping sync.")
+			color.Red("Skipping sync.")
+			os.Exit(1)
 		} else {
 			helmChart := "/Users/mikaAguilar/Projects/helm-charts/rsync"
 
 			srcConfig := setupEnvConfigViper(srcEnv)
 			destConfig := setupEnvConfigViper(destEnv)
 
+			timestamp := int32(time.Now().Unix())
+
+			color.Cyan("Generating a keypair to use for this transaction...")
+			util.ExecCmdChain(fmt.Sprintf("ssh-keygen -q -b 2048 -t rsa -N '' -f /tmp/argo-temp-%v", timestamp))
+			privateKey, _ := util.ExecCmdChain(fmt.Sprintf("cat /tmp/argo-temp-%v | base64 | tr -d '\n'", timestamp))
+			publicKey, _ := util.ExecCmdChain(fmt.Sprintf("cat /tmp/argo-temp-%v.pub | base64 | tr -d '\n'", timestamp))
+			util.ExecCmd("rm", fmt.Sprintf("/tmp/argo-temp-%v*", timestamp))
+
 			color.Cyan("Enabling temporary access to source...")
 
 			projectName := projectConfig.GetString("project_name")
-			timestamp := int32(time.Now().Unix())
 			deploymentName := fmt.Sprintf("rsync-%s-%v", projectName, timestamp)
-			privateKey, _ := util.ExecCmdChainCombinedOut("cat ~/.ssh/favish.pem | base64")
 
 			var srcHelmValues HelmValues
 			// Check if source and dest exist on different clusters, will also detect local
@@ -121,6 +129,7 @@ var filesCmd = &cobra.Command{
 			srcHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", srcConfig.GetString("namespace")), true)
 			srcHelmValues.appendValue("is_source", "true", true)
 			srcHelmValues.appendValue("private_key", privateKey, true)
+			srcHelmValues.appendValue("public_key", publicKey, true)
 			// Install rsync chart on source cluster, get the service or pod ip and leave it open so destination can pull from it
 			color.Cyan("Spinning up pod on source to make source volume available...")
 			setKubectlConfig(srcEnv)
@@ -157,6 +166,7 @@ var filesCmd = &cobra.Command{
 			destHelmValues.appendValue("is_destination", "true", true)
 			destHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", destConfig.GetString("namespace")), true)
 			destHelmValues.appendValue("private_key", privateKey, true)
+			destHelmValues.appendValue("public_key", publicKey, true)
 			color.Cyan("Starting destination rsync process...")
 			setKubectlConfig(destEnv)
 			out, err = util.ExecCmdChainCombinedOut(fmt.Sprintf("helm install --wait --name %s %s --set %s",
