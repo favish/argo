@@ -274,7 +274,6 @@ var dbCmd = &cobra.Command{
 func init() {
 	syncCmd.AddCommand(filesCmd)
 	syncCmd.AddCommand(dbCmd)
-	syncCmd.AddCommand(secretsCmd)
 }
 
 
