@@ -164,12 +164,14 @@ func checkExisting() bool {
 	environment := projectConfig.GetString("environment")
 
 	color.Cyan("Ensuring existing helm project does not already exist...")
-	projectExists := false
-	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s-%s | grep 'STATUS: DEPLOYED'", projectName, environment)); len(out) > 0 {
-		color.Yellow(out)
-		projectExists = true
+	out, err := util.ExecCmdChainCombinedOut(fmt.Sprintf("helm status %s-%s", projectName, environment))
+
+	if (err != nil) {
+		color.Red(out)
+		return false
+	} else {
+		return true
 	}
-	return projectExists
 }
 
 type HelmValues struct {
@@ -265,7 +267,7 @@ func helmUpgrade() error {
 	chartConfigPath := fmt.Sprintf("charts.%s",envConfig.GetString("ConfigType"))
 	helmChartPath := projectConfig.GetString(chartConfigPath)
 
-	command := fmt.Sprintf("helm upgrade --values %s %s %s-%s %s --set %s",
+	command := fmt.Sprintf("helm upgrade --install --values %s %s %s-%s %s --set %s",
 		envConfig.ConfigFileUsed(),
 		waitFlag,
 		projectName,
