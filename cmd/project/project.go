@@ -62,7 +62,7 @@ var projectConfig = viper.New()
 var envConfig = viper.New()
 
 func init() {
-	ProjectCmd.PersistentFlags().StringP("environment", "e", "", "Define which environment to apply argo commands.  This is generally the git branch, will be the namespace prefix for this deployment.")
+	ProjectCmd.PersistentFlags().StringP("environment", "e", "", "Define which environment to apply argo commands.  This is generally the git branch.")
 	projectConfig.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
 
 	ProjectCmd.PersistentFlags().Bool("wait", false, "If true, apply --wait to helm commands.  See helm documentation for more details.")
@@ -94,33 +94,23 @@ func initProjectConfig() {
 }
 
 // Grab the configuration for the intended environment.
-// To support multi-dev situations, environments that aren't local/dev/prod fallback to using the dev configuration
+// Every environment should have an associated config yaml in the project's .argo/environments folder
 func setupEnvConfigViper(environmentFlag string) *viper.Viper {
-	var definedEnvironments = map[string]bool {
-		"local": true,
-		"dev": true,
-		"prod": true,
-	}
 	config := viper.New();
-	config.SetDefault("ConfigType", "dev")
-	if definedEnvironments[environmentFlag] {
-		config.Set("ConfigType", environmentFlag)
-	}
-	config.SetConfigName(config.GetString("ConfigType"))
+	config.SetConfigName(environmentFlag)
 	config.AddConfigPath("./.argo/environments")
 	if err := config.ReadInConfig(); err != nil {
 		color.Red("%s",err)
-		color.Red("Error locating or parsing %s env's helm value file (should be ./argo/environments/%s.yaml!", config.GetString("ConfigType"))
+		color.Red("Error locating or parsing %s env's helm value file (should be ./argo/environments/%s.yaml!", environmentFlag)
 		os.Exit(1)
 	}
-	config.Set("namespace", fmt.Sprintf("%s-%s", projectConfig.GetString("project_name"), environmentFlag))
 	return config
 }
 
 // Setup values to use for gcloud and kubectl commands for specified environment
 func setKubectlConfig(environment string) {
 	currentEnvConfig := setupEnvConfigViper(environment)
-	var namespace = currentEnvConfig.GetString("namespace")
+	var namespace = currentEnvConfig.GetString("general.namespace")
 
 	var contextCluster string
 	if environment == "local" {
@@ -159,6 +149,7 @@ func setKubectlConfig(environment string) {
 }
 
 // Run a check to see if the project already exists in helm
+// TODO - this is not necessarily switching to the correct kubectl context before running resulting in false negatives
 func checkExisting() bool {
 	projectName := projectConfig.GetString("project_name")
 	environment := projectConfig.GetString("environment")
@@ -174,6 +165,8 @@ func checkExisting() bool {
 	}
 }
 
+// Construct values passed directly into helm via --set
+// Other values are passed through the environment values.yaml
 type HelmValues struct {
 	values []string
 }
@@ -193,7 +186,6 @@ func (hv *HelmValues) appendValue(helmKey string, value string, required bool) {
 		hv.values = append(hv.values, fmt.Sprintf("%s=%s", helmKey, value))
 	}
 }
-
 // Add value from argo.yml or other config value (environment variables) by key
 func (hv *HelmValues) appendProjectValue(helmKey string, projectKey string, required bool) {
 	projectValue := projectConfig.GetString(projectKey)
@@ -238,33 +230,18 @@ func helmUpgrade() error {
 		helmValues.appendValue("applications.xdebug.host_ip", localIp, true)
 	} else {
 		// Obtain the git commit from env vars if present in CircleCI
+		// TODO - Make this a required argument rather than inferred environment variable
 		if circleSha := projectConfig.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {
 			helmValues.appendValue("general.git_commit", circleSha, false)
-		}
-		// Drupal env should only ever be prod or dev, not local
-		helmValues.appendValue("applications.drupal.env", environment, false)
-	}
-
-	// If hostname_template is specified, subsitute in projectname-environment name and set as hostname
-	hostnameTpl := envConfig.GetString("network.hostname_template")
-	if (len(hostnameTpl) > 0) {
-		var hostname string
-		if (environment == "dev") {
-			hostname = fmt.Sprintf(hostnameTpl, projectName)
 		} else {
-			hostnamePrefix := fmt.Sprintf("%s-%s", projectName, environment)
-			hostname = fmt.Sprintf(hostnameTpl, hostnamePrefix)
+			if approve := util.GetApproval("No CIRCLE_SHA1 environment variable set (should be git sha1 hash of commit), use 'latest' tag for application container?"); !approve {
+				color.Red("User exited.  Please run 'export CIRCLE_SHA1=' adding your targetted git commit hash, or run again and agree to use 'latest.'")
+				os.Exit(1)
+			}
 		}
-		helmValues.appendValue("network.hostname", hostname, true)
 	}
 
-	if (envConfig.GetBool("applications.mysql.derive_db")) {
-		databaseName := fmt.Sprintf("%s_%s", projectName, environment)
-		databaseName = strings.Replace(databaseName, "-", "_", -1)
-		helmValues.appendValue("applications.mysql.db", databaseName, true)
-	}
-
-	chartConfigPath := fmt.Sprintf("charts.%s",envConfig.GetString("ConfigType"))
+	chartConfigPath := fmt.Sprintf("charts.%s", environment)
 	helmChartPath := projectConfig.GetString(chartConfigPath)
 
 	command := fmt.Sprintf("helm upgrade --install --values %s %s %s-%s %s --set %s",
