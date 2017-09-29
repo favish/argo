@@ -90,13 +90,21 @@ func initProjectConfig() {
 		os.Exit(1)
 	}
 
-	envConfig = setupEnvConfigViper(projectConfig.GetString("environment"))
+	// The sub-command `sync` does not use an --environment flag.
+	// TODO - Ditch the --environment flag - MEA
+	if (projectConfig.IsSet("environment")) {
+		envConfig = setupEnvConfigViper(projectConfig.GetString("environment"))
+	} else {
+		if viper.GetBool("debug") {
+			color.Yellow("[debug] - Skipping environment configuration import from -e/--environment flag, command does not use")
+		}
+	}
 }
 
 // Grab the configuration for the intended environment.
 // Every environment should have an associated config yaml in the project's .argo/environments folder
 func setupEnvConfigViper(environmentFlag string) *viper.Viper {
-	config := viper.New();
+	config := viper.New()
 	config.SetConfigName(environmentFlag)
 	config.AddConfigPath("./.argo/environments")
 	if err := config.ReadInConfig(); err != nil {
