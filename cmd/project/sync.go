@@ -4,55 +4,158 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/favish/argo/util"
 	"github.com/fatih/color"
-	"github.com/spf13/viper"
 	"os"
 	"fmt"
+	"strings"
+	"time"
 )
 
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Update local copies of persistent data to match remote dev.",
+	Short: "Sync files and database SOURCE > DESTINATION.",
 	Long: `
-		Sync local copies of remote persistent data (user files/database) to local argo environment.
+		Sync files and database SOURCE > DESTINATION.
 	`,
+	Run: func(cmd *cobra.Command, args []string) {
+		validateArgs(args)
+		color.Yellow("The base `sync` command updates the database & files together.  You may choose to do them separately via sub-commands.")
+		filesCmd.Run(cmd, args)
+		dbCmd.Run(cmd, args)
+	},
 }
 
 var filesCmd = &cobra.Command{
 	Use: "files",
-	Short: "Sync files FROM > TO.",
-	Long: `Use this command to retrieve or push your files to and from remote environments.
-	Ex. "argo project sync files dev local" brings dev files to your machine.
-	Using rsync and project argo.yml configuration under the hood.
-	Valid choices for FROM/TO are local, prod, or dev.
-
-	WILL NOT SYNC TWO REMOTE HOSTS.
-	`,
+	Short: "Sync files SOURCE > DESTINATION.",
+	Long: `Uses temporary containers to perform an rsync between two separate environments`,
 	Run: func(cmd *cobra.Command, args []string) {
 		validateArgs(args)
 
-		destinationEnv := args[1]
-		source, destination := getFileSyncPaths(args)
+		srcEnv := args[0]
+		destEnv := args[1]
 
-		if approve := util.GetApproval(fmt.Sprintf("This will sync files from %s (%s) to %s (%s), proceed?", args[0], source, args[1], destination)); !approve {
+		if approve := util.GetApproval(fmt.Sprintf("This will sync files from %s to %s, proceed?", srcEnv, destEnv)); !approve {
+			color.Red("Skipping sync.")
 			os.Exit(1)
 		} else {
-			color.Cyan("Adding ssh aliases via gcloud for compute instances...")
+			helmChart := "https://favish.github.io/helm-charts/rsync-1.0.0-alpha.1.tgz"
 
-			if (destination != "local") {
-				color.Cyan(destinationEnv)
-				destProject := projectConfig.GetString(fmt.Sprintf("environments.%s.project", destinationEnv))
-				// TODO - only support local > remote or remote > local.
-				util.ExecCmd("gcloud", "compute", "config-ssh", fmt.Sprintf("--project=%s", destProject))
+			srcConfig := setupEnvConfigViper(srcEnv)
+			destConfig := setupEnvConfigViper(destEnv)
+
+			timestamp := int32(time.Now().Unix())
+
+			color.Cyan("Generating a keypair to use for this transaction...")
+			util.ExecCmdChain(fmt.Sprintf("ssh-keygen -q -b 2048 -t rsa -N '' -f /tmp/argo-temp-%v", timestamp))
+			privateKey, _ := util.ExecCmdChain(fmt.Sprintf("cat /tmp/argo-temp-%v | base64 | tr -d '\n'", timestamp))
+			publicKey, _ := util.ExecCmdChain(fmt.Sprintf("cat /tmp/argo-temp-%v.pub | base64 | tr -d '\n'", timestamp))
+			util.ExecCmd("rm", fmt.Sprintf("/tmp/argo-temp-%v*", timestamp))
+
+			color.Cyan("Enabling temporary access to source...")
+
+			projectName := projectConfig.GetString("project_name")
+			deploymentName := fmt.Sprintf("rsync-%s-%v", projectName, timestamp)
+
+			var srcHelmValues HelmValues
+			// Check if source and dest exist on different clusters, will also detect local
+			// First, concat project and cluster, in case clusters are named the same
+			srcClusterLocation := fmt.Sprintf("%s-%s", srcConfig.GetString("gcp.project"), srcConfig.GetString("gcp.cluster"))
+			destClusterLocation := fmt.Sprintf("%s-%s", destConfig.GetString("gcp.project"), destConfig.GetString("gcp.cluster"))
+			externalCluster := false
+			if (srcClusterLocation != destClusterLocation) {
+				externalCluster = true
+				srcHelmValues.appendValue("service_type", "LoadBalancer", true)
+				color.Cyan("Clusters do not match, source will expose endpoint via LoadBalancer")
+			} else {
+				color.Cyan("Same cluster sync, using ClusterIP")
 			}
 
-			util.ExecCmd("rsync", "-avzh", "--progress", source, destination)
+			srcHelmValues.appendValue("name", deploymentName, true)
+			srcHelmValues.appendValue("namespace", srcConfig.GetString("general.namespace"), true)
+			srcHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", srcConfig.GetString("general.namespace")), true)
+			srcHelmValues.appendValue("is_source", "true", true)
+			srcHelmValues.appendValue("private_key", privateKey, true)
+			srcHelmValues.appendValue("public_key", publicKey, true)
+			// Install rsync chart on source cluster, get the service or pod ip and leave it open so destination can pull from it
+			color.Cyan("Spinning up pod on source to make source volume available...")
+			setKubectlConfig(srcEnv)
+			out, err := util.ExecCmdChainCombinedOut(fmt.Sprintf("helm install --wait --name %s %s --set %s",
+				deploymentName,
+				helmChart,
+				strings.Join(srcHelmValues.values, ","),
+			))
+			if (err != nil) {
+				color.Red("Error installing on source: %s", out)
+				os.Exit(1)
+			} else {
+				color.Cyan(out)
+			}
+
+			var sourceIP string
+			if (externalCluster) {
+				sourceIP, err = util.ExecCmdChain(fmt.Sprintf("kubectl get service %s -o jsonpath='{.status.loadBalancer.ingress[0].ip}'", deploymentName))
+			} else {
+				sourceIP, err = util.ExecCmdChain(fmt.Sprintf("kubectl get service %s -o jsonpath='{.spec.clusterIP}'", deploymentName))
+			}
+			if (err != nil) {
+				color.Red("Unable to get sourceIP, rolling back. (%s)", err)
+				setKubectlConfig(srcEnv)
+				util.ExecCmd("helm", "delete", "--purge", deploymentName)
+				os.Exit(1)
+			}
+
+			// Spin up chart on destination, which starts an rsync job
+			var destHelmValues HelmValues
+			destDeploymentName := fmt.Sprintf("%s-dest", deploymentName)
+			destHelmValues.appendValue("name", destDeploymentName, true)
+			destHelmValues.appendValue("namespace", destConfig.GetString("general.namespace"), true)
+			destHelmValues.appendValue("is_destination", "true", true)
+			destHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", destConfig.GetString("general.namespace")), true)
+			destHelmValues.appendValue("private_key", privateKey, true)
+			destHelmValues.appendValue("public_key", publicKey, true)
+			color.Cyan("Starting destination rsync process...")
+			setKubectlConfig(destEnv)
+			out, err = util.ExecCmdChainCombinedOut(fmt.Sprintf("helm install --wait --name %s %s --set %s",
+				destDeploymentName,
+				helmChart,
+				strings.Join(destHelmValues.values, ","),
+			))
+
+			if (err != nil) {
+				color.Red("Error installing on destination: %s", out)
+				os.Exit(1)
+			} else {
+				color.Cyan(out)
+			}
+
+			util.ExecCmd("kubectl", "get", "pods")
+			// Get pod name on dest, execute rsync on it
+			podName, err := util.ExecCmdChainCombinedOut("kubectl get pods --selector='task=rsync' | grep 'Running' | awk '{print $1}' | tr -d '\n'")
+			if (err != nil || len(podName) == 0) {
+				color.Red("Error obtaining pod: %s", out)
+			}
+
+			out, err = util.ExecCmdChainCombinedOut(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- rsync -avz -e 'ssh -o StrictHostKeyChecking=no' %s:/srv/ /srv", podName, sourceIP))
+			if (err != nil) {
+				color.Red("Error executing rsync: %s", out)
+			} else {
+				color.Cyan(out)
+			}
+
+			util.ExecCmd("kubectl", "get", "pods")
+		 	// Cleanup
+			color.Cyan("Cleaning up deployments...")
+			util.ExecCmd("helm", "delete", "--purge", destDeploymentName)
+			setKubectlConfig(srcEnv)
+			util.ExecCmd("helm", "delete", "--purge", deploymentName)
+
 		}
 	},
 }
 
 var dbCmd = &cobra.Command{
 	Use: "db",
-	Short: "Sync database FROM > TO.  Requires functional database on both targets (run drush site-install if needed).",
+	Short: "Sync database SOURCE > DESTINATION.  Requires functional database on both targets (run drush site-install if needed).",
 	Long: `Use this command to retrieve or push your database to and from remote environments.
 	Ex. "argo project sync db dev local" brings dev db to your machine.
 	Light wrapper around drush, implementation similar to drush sql-sync in a world without ssh.
@@ -71,16 +174,21 @@ var dbCmd = &cobra.Command{
 		source := args[0]
 		destination := args[1]
 
+		// Tag dumps with current timestamp
+		timestamp := int32(time.Now().Unix())
+		databaseFilename := fmt.Sprintf("argo-db-tmp-%d.sql", timestamp)
+
 		// Process:
 		// Connect to SOURCE application pod
 		// Dump database to temp file
-		// Copy database to developer's machine
-		// Unzip local copy
+		// Copy database to operator's machine
 		// Connect to DESTINATION application pod
+		// Make sure database exists on DESTINATION
 		// Create temp backup of DESTINATION database
 		// Drop DESTINATION application database
+		// Copy dump to DESTINATION pod, unzip there
 		// Sync DESTINATION application database
-		// Delete developer's temp file
+		// Delete operator's temp file
 
 		// Point kubectl at FROM, dump database to local temp file
 		setKubectlConfig(source)
@@ -93,25 +201,21 @@ var dbCmd = &cobra.Command{
 
 		// Dump database on FROM environment
 		color.Cyan("Creating a database dump on FROM container...")
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sql-dump --gzip --result-file=/tmp/argo-db-tmp.sql'", sourcePodName))
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- drush sql-dump --gzip --result-file=/tmp/%s",
+			sourcePodName,
+			databaseFilename))
 		if (err != nil) {
-			color.Red("Error getting dump: %s", err)
+			color.Red("Error creating dump: %s", err)
 			os.Exit(1)
 		}
 
 		// Copy database to operator's machine
 		color.Cyan("Copying dump from FROM container to your machine...")
-		err = util.ExecCmd("kubectl", "cp", fmt.Sprintf("%s:/tmp/argo-db-tmp.sql.gz", sourcePodName), "/tmp/argo-db-tmp.sql.gz")
+		err = util.ExecCmd("kubectl", "cp",
+			fmt.Sprintf("%s:/tmp/%s.gz", sourcePodName, databaseFilename),
+			fmt.Sprintf("/tmp/%s.gz", databaseFilename))
 		if (err != nil) {
 			color.Red("Error copying dump locally: %s", err)
-			os.Exit(1)
-		}
-
-		// Unzip on operator's machine
-		color.Cyan("Unzipping.  You may be prompted to overwrite, please do so.")
-		err = util.ExecCmd("gunzip", "/tmp/argo-db-tmp.sql.gz")
-		if (err != nil) {
-			color.Red("Error unzipping database dump: %s", err)
 			os.Exit(1)
 		}
 
@@ -126,8 +230,11 @@ var dbCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		color.Cyan("Creating backup of %s before dropping existing database, saving to /var/www/argo-db-tmp.sql.bak", destination)
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sql-dump --gzip --result-file=/var/www/argo-db-tmp.sql.bak'", destPodName))
+		color.Cyan("Ensuring database exists on %s...", destination)
+		util.ExecCmdChain(fmt.Sprintf("kubectl exec %s /opt/init_database.sh", destPodName))
+
+		color.Cyan("Creating backup of %s before dropping existing database, saving to /var/www/%s.bak.gz", destination, databaseFilename)
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sql-dump --gzip --result-file=/tmp/argo-db-tmp.sql.bak'", destPodName))
 		if (err != nil) {
 			color.Red("Error backing up: %s", err)
 			os.Exit(1)
@@ -139,17 +246,33 @@ var dbCmd = &cobra.Command{
 		}
 		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sql-drop -y'", destPodName))
 
+		color.Cyan("Uploading database to %s via kubectl cp...", destination)
+		err = util.ExecCmd("kubectl",
+			"cp",
+			fmt.Sprintf("/tmp/%s.gz", databaseFilename),
+			fmt.Sprintf("%s:/tmp/%s.gz", destPodName, databaseFilename))
+		if (err != nil) {
+			color.Red("Error uploading database dump: %s", err)
+			os.Exit(1)
+		}
+
+		color.Cyan("Unzipping...")
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- gunzip /tmp/%s.gz", destPodName, databaseFilename))
+		if (err != nil) {
+			color.Red("Error unzipping database dump: %s", err)
+			os.Exit(1)
+		}
+
 		color.Cyan("Importing database dump to %s environment, may take a few moments...", destination)
-		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s < /tmp/argo-db-tmp.sql -- /bin/bash -c 'drush sqlc'", destPodName))
+		_, err = util.ExecCmdChain(fmt.Sprintf("kubectl exec --stdin=true --tty=true %s -- /bin/bash -c 'drush sqlc < /tmp/%s'", destPodName, databaseFilename))
 		if (err != nil) {
 			color.Red("Error importing database: %s", err)
 			os.Exit(1)
 		}
 
-		err = util.ExecCmd("rm", "/tmp/argo-db-tmp.sql")
-		err = util.ExecCmd("rm", "/tmp/argo-db-tmp.sql.gz")
+		err = util.ExecCmd("rm", fmt.Sprintf("/tmp/%s.gz", databaseFilename))
 		if (err != nil) {
-			color.Yellow("Error removing temp database: %s", err)
+			color.Yellow("Error removing local temp database dump: %s", err)
 		}
 	},
 }
@@ -162,33 +285,6 @@ func init() {
 
 func validateArgs(args []string) {
 	if (len(args) > 2) {
-		color.Red("Too many args.  Command accepts only FROM and TO arguments")
+		panic("Too many arguments.  Command accepts only FROM and TO arguments")
 	}
-
-	validArgs := map[string]bool {
-		"dev": true,
-		"local": true,
-		"prod": true,
-	}
-	// Validate arguments
-	for _, arg := range args {
-		if !validArgs[arg] {
-			color.Red("Invalid argument provided.  Must be one of: local, prod, dev.")
-			os.Exit(1)
-		}
-	}
-}
-
-func getFileSyncPaths(args []string) (string, string) {
-	projectName := projectConfig.GetString("project_name")
-	locations := map[string]string {
-		"dev": fmt.Sprintf("%s:%s%s/", viper.GetString("environments.dev.files-instance"), "/mnt/disks/", projectName),
-		"prod": fmt.Sprintf("%s:%s%s/", viper.GetString("environments.prod.files-instance"), "/mnt/disks/", projectName),
-		"local": "docroot/sites/default/files/",
-	}
-
-	from := locations[args[0]]
-	to := locations[args[1]]
-
-	return from, to
 }

@@ -36,6 +36,7 @@ var createCmd = &cobra.Command{
 		Starts and configures the correct chart via Helm.
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
+		setKubectlConfig(projectConfig.GetString("environment"))
 
 		if approve := util.GetApproval(fmt.Sprintf("This will create a deployment in the %s environment, are you sure?", projectConfig.GetString("environment"))); !approve {
 			color.Yellow("Deployment cancelled by user.")
@@ -73,7 +74,14 @@ o . o o.o
 		color.Green("This has bootstrapped a kubernetes environment, normal kubectl commands will allow you to interrogate your new infra.")
 		color.Yellow("If this is your fist time working with this project, use `argo project sync` to obtain databases and files.")
 		color.Yellow("It may take a few moments for the infrastructure to spin up.")
+		color.Cyan("** If you intend this environment to be non-ephemeral, update the Reclaim Policy of the newly created Persistent Volumes to be Retain **")
+		color.Cyan("** Otherwise, this environments volumes will be DELETED if the associated PVCs are removed. **")
 	},
+}
+
+func init() {
+	createCmd.Flags().String("clone-from", "", "(optional) Choose an environment from which to clone the database, ssl cert, and files from when starting this environment.")
+	projectConfig.BindPFlag("clone-from", createCmd.Flags().Lookup("clone-from"))
 }
 
 func setupLocalEnvironment() {

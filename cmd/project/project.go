@@ -5,7 +5,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/fatih/color"
 	"github.com/favish/argo/util"
-	"github.com/favish/argo/schemas"
 	"github.com/favish/argo/cmd/components"
 	"os"
 	"strings"
@@ -23,9 +22,9 @@ var ProjectCmd = &cobra.Command{
 		initProjectConfig()
 
 		chart := projectConfig.GetString("chart");
-		oldChart, _ := regexp.MatchString("drupal-8-0", chart)
+		oldChart, _ := regexp.MatchString("drupal-8-1", chart)
 		if (oldChart) {
-			color.Red("This chart's version is now unsupported.  Either upgrade the project to >1.0.0 or switch to an argo version below 0.11.0")
+			color.Red("This chart's version is now unsupported.  Either upgrade the project to >2.0.0 or switch to an argo version below 1.0.0")
 			os.Exit(1)
 		}
 
@@ -47,8 +46,6 @@ var ProjectCmd = &cobra.Command{
 			}
 		}
 
-		setKubectlConfig(projectConfig.GetString("environment"))
-
 		// Warn if blackfire environment not setup
 		if blackFire := projectConfig.GetString("BLACKFIRE_SERVER_ID"); len(blackFire) <= 0 {
 			c := color.New(color.FgHiYellow).Add(color.Bold)
@@ -58,11 +55,14 @@ var ProjectCmd = &cobra.Command{
 	},
 }
 
+// Values for these are loaded in initProjectConfig()
 // Entire package will use projectConfig viper instance
 var projectConfig = viper.New()
+// Initialize a new config for environment specific variables
+var envConfig = viper.New()
 
 func init() {
-	ProjectCmd.PersistentFlags().StringP("environment", "e", "local", "Define which environment to apply argo commands to. Ex: \"local\", \"dev\", or \"prod\".")
+	ProjectCmd.PersistentFlags().StringP("environment", "e", "", "Define which environment to apply argo commands.  This is generally the git branch.")
 	projectConfig.BindPFlag("environment", ProjectCmd.PersistentFlags().Lookup("environment"))
 
 	ProjectCmd.PersistentFlags().Bool("wait", false, "If true, apply --wait to helm commands.  See helm documentation for more details.")
@@ -74,34 +74,59 @@ func init() {
 	ProjectCmd.AddCommand(setEnvCmd)
 	ProjectCmd.AddCommand(updateCmd)
 	ProjectCmd.AddCommand(rollbackCmd)
+	ProjectCmd.AddCommand(existsCmd)
 }
 
 func initProjectConfig() {
-	projectConfig.SetConfigName("argo") 	// Name of config file (without extension)
-	projectConfig.AddConfigPath(".")  	// Current directory
+	projectConfig.SetConfigName("config") 	// Name of config file (without extension)
+	projectConfig.AddConfigPath("./.argo")  // Current directory/.argo
 	// TODO - Perhaps only provide access to environment variables in a global viper object - MEA
 	projectConfig.AutomaticEnv()
 
 	// Error if no yaml found
 	if err := projectConfig.ReadInConfig(); err != nil {
 		color.Red("%s",err)
-		color.Red("No project argo.yml found in this directory!")
+		color.Red("Error locating or parsing .argo/config.yml!")
 		os.Exit(1)
+	}
+
+	// The sub-command `sync` does not use an --environment flag.
+	// TODO - Ditch the --environment flag - MEA
+	if (projectConfig.IsSet("environment")) {
+		envConfig = setupEnvConfigViper(projectConfig.GetString("environment"))
+	} else {
+		if viper.GetBool("debug") {
+			color.Yellow("[debug] - Skipping environment configuration import from -e/--environment flag, command does not use")
+		}
 	}
 }
 
+// Grab the configuration for the intended environment.
+// Every environment should have an associated config yaml in the project's .argo/environments folder
+func setupEnvConfigViper(environmentFlag string) *viper.Viper {
+	config := viper.New()
+	config.SetConfigName(environmentFlag)
+	config.AddConfigPath("./.argo/environments")
+	if err := config.ReadInConfig(); err != nil {
+		color.Red("%s",err)
+		color.Red("Error locating or parsing %s env's helm value file (should be ./argo/environments/%s.yaml!", environmentFlag)
+		os.Exit(1)
+	}
+	return config
+}
 
 // Setup values to use for gcloud and kubectl commands for specified environment
 func setKubectlConfig(environment string) {
-	projectName := projectConfig.GetString("project_name");
+	currentEnvConfig := setupEnvConfigViper(environment)
+	var namespace = currentEnvConfig.GetString("general.namespace")
 
 	var contextCluster string
 	if environment == "local" {
 		contextCluster = "minikube"
 	} else {
-		gcloudCluster := viper.GetString(fmt.Sprintf("environments.%s.gcp.cluster", environment))
-		gcloudProject := viper.GetString(fmt.Sprintf("environments.%s.gcp.project", environment))
-		gcloudZone := viper.GetString(fmt.Sprintf("environments.%s.gcp.compute_zone", environment))
+		gcloudCluster := currentEnvConfig.GetString("gcp.cluster")
+		gcloudProject := currentEnvConfig.GetString("gcp.project")
+		gcloudZone := currentEnvConfig.GetString("gcp.compute_zone")
 
 		gcloudCmd := fmt.Sprintf("container clusters get-credentials %s --project=%s --zone=%s", gcloudCluster, gcloudProject, gcloudZone)
 
@@ -123,34 +148,33 @@ func setKubectlConfig(environment string) {
 
 	color.Cyan("Recreating kubectl context and setting to active...")
 
-	contextName := fmt.Sprintf("%s-%s", projectName, environment)
+	contextName := namespace
 	// Setup a kubectl context and switch to it
 	util.ExecCmd("kubectl", "config", "delete-context", contextName)
-	util.ExecCmd("kubectl", "config", "set-context", contextName, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextCluster), fmt.Sprintf("--namespace=%s", projectName))
+	util.ExecCmd("kubectl", "config", "set-context", contextName, fmt.Sprintf("--cluster=%s", contextCluster), fmt.Sprintf("--user=%s", contextCluster), fmt.Sprintf("--namespace=%s", namespace))
 	util.ExecCmd("kubectl", "config", "use-context", contextName)
 	color.Cyan("Created new %s kubectl context and set to active.", contextName)
-
-	// If the namespace does not exist, create one.
-	if err := util.ExecCmd("kubectl", "get", "namespace", projectName); err != nil {
-		util.ExecCmd("kubectl", "create", "namespace", projectName)
-		color.Cyan("Created new %s kubernetes namespace.", projectName)
-	}
-
 }
 
 // Run a check to see if the project already exists in helm
+// TODO - this is not necessarily switching to the correct kubectl context before running resulting in false negatives
 func checkExisting() bool {
 	projectName := projectConfig.GetString("project_name")
+	environment := projectConfig.GetString("environment")
 
 	color.Cyan("Ensuring existing helm project does not already exist...")
-	projectExists := false
-	if out, _ := util.ExecCmdChain(fmt.Sprintf("helm status %s | grep 'STATUS: DEPLOYED'", projectName)); len(out) > 0 {
-		color.Yellow(out)
-		projectExists = true
+	out, err := util.ExecCmdChainCombinedOut(fmt.Sprintf("helm status %s-%s", projectName, environment))
+
+	if (err != nil) {
+		color.Red(out)
+		return false
+	} else {
+		return true
 	}
-	return projectExists
 }
 
+// Construct values passed directly into helm via --set
+// Other values are passed through the environment values.yaml
 type HelmValues struct {
 	values []string
 }
@@ -170,18 +194,10 @@ func (hv *HelmValues) appendValue(helmKey string, value string, required bool) {
 		hv.values = append(hv.values, fmt.Sprintf("%s=%s", helmKey, value))
 	}
 }
-
 // Add value from argo.yml or other config value (environment variables) by key
 func (hv *HelmValues) appendProjectValue(helmKey string, projectKey string, required bool) {
 	projectValue := projectConfig.GetString(projectKey)
 	hv.appendValue(helmKey, projectValue, required)
-}
-
-// Grab project value based on environment value
-// All environment values live at environments.%s, ie environments.dev or environments.local
-func (hv *HelmValues) appendProjectEnvValue(helmKey string, projectKey string, environment string, required bool) {
-	environmentValue := projectConfig.GetString(fmt.Sprintf("environments.%s.%s", environment, projectKey))
-	hv.appendValue(helmKey, environmentValue, required)
 }
 
 // Helm upgrade is run on deploy and update
@@ -201,44 +217,48 @@ func helmUpgrade() error {
 	var helmValues HelmValues
 
 	helmValues.appendValue("general.project_name", projectName, true);
-	helmValues.appendValue("general.environment_type", environment, true);
+	helmValues.appendValue("general.environment", environment, true);
 
 	// These come from environment vars
 	// TODO - Blackfire credential management? Currently deploying to both environments - MEA
-	helmValues.appendProjectValue("blackfire.server_id", "BLACKFIRE_SERVER_ID", false)
-	helmValues.appendProjectValue("blackfire.server_token", "BLACKFIRE_SERVER_TOKEN", false)
-	helmValues.appendProjectValue("blackfire.client_id", "BLACKFIRE_CLIENT_ID", false)
-	helmValues.appendProjectValue("blackfire.client_token", "BLACKFIRE_CLIENT_TOKEN", false)
+	helmValues.appendProjectValue("applications.blackfire.server_id", "BLACKFIRE_SERVER_ID", false)
+	helmValues.appendProjectValue("applications.blackfire.server_token", "BLACKFIRE_SERVER_TOKEN", false)
+	helmValues.appendProjectValue("applications.blackfire.client_id", "BLACKFIRE_CLIENT_ID", false)
+	helmValues.appendProjectValue("applications.blackfire.client_token", "BLACKFIRE_CLIENT_TOKEN", false)
 
-	// Add all keys to helm by iterating schema values
-	environmentKeys := schemas.DrupalSchema.AllKeys();
-	for _, key := range environmentKeys {
-		helmValues.appendProjectEnvValue(key, key, environment, schemas.DrupalSchema.GetBool(key))
-	}
-
-	// Local vs remote differences:
-	// TODO - catch up local - MEA
+	// Derived values
 	if environment == "local" {
 		// Using https://github.com/mstrzele/minikube-nfs
 		// Creates a persistent volume with contents of /Users mounted from an nfs share from host
 		// So rather than using /Users directly, grab the path within the project
 		// Check the helm chart mounts
 		projectPath, _ := util.ExecCmdChain("printf ${PWD#/Users/}")
-		color.Green(projectPath);
 		helmValues.appendValue("applications.drupal.local.project_root", projectPath, true)
-		helmValues.appendProjectValue("applications.drupal.local.theme_dir", "environments.local.applications.drupal.local.theme_dir", true)
 		localIp, _ := util.ExecCmdChain("ifconfig | grep \"inet \" | grep -v 127.0.0.1 | awk '{print $2}' | sed -n 1p")
 		helmValues.appendValue("applications.xdebug.host_ip", localIp, true)
 	} else {
 		// Obtain the git commit from env vars if present in CircleCI
+		// TODO - Make this a required argument rather than inferred environment variable
 		if circleSha := projectConfig.GetString("CIRCLE_SHA1"); len(circleSha) > 0 {
 			helmValues.appendValue("general.git_commit", circleSha, false)
+		} else {
+			if approve := util.GetApproval("No CIRCLE_SHA1 environment variable set (should be git sha1 hash of commit), use 'latest' tag for application container?"); !approve {
+				color.Red("User exited.  Please run 'export CIRCLE_SHA1=' adding your targetted git commit hash, or run again and agree to use 'latest.'")
+				os.Exit(1)
+			}
 		}
-		// Drupal env should only ever be prod or dev, not local
-		helmValues.appendValue("applications.drupal.env", environment, false);
 	}
 
-	command := fmt.Sprintf("helm upgrade --install %s %s %s --set %s", waitFlag, projectName, projectConfig.GetString("chart"), strings.Join(helmValues.values, ","))
+	chartConfigPath := fmt.Sprintf("charts.%s", environment)
+	helmChartPath := projectConfig.GetString(chartConfigPath)
+
+	command := fmt.Sprintf("helm upgrade --install --values %s %s %s-%s %s --set %s",
+		envConfig.ConfigFileUsed(),
+		waitFlag,
+		projectName,
+		environment,
+		helmChartPath,
+		strings.Join(helmValues.values, ","))
 	out, err := util.ExecCmdChainCombinedOut(command)
 	if (err != nil) {
 		color.Red(out)
