@@ -38,7 +38,7 @@ var filesCmd = &cobra.Command{
 			color.Red("Skipping sync.")
 			os.Exit(1)
 		} else {
-			helmChart := "/Users/mikaAguilar/Projects/helm-charts/rsync"
+			helmChart := "https://favish.github.io/helm-charts/rsync-1.0.0-alpha.1.tgz"
 
 			srcConfig := setupEnvConfigViper(srcEnv)
 			destConfig := setupEnvConfigViper(destEnv)
@@ -71,8 +71,8 @@ var filesCmd = &cobra.Command{
 			}
 
 			srcHelmValues.appendValue("name", deploymentName, true)
-			srcHelmValues.appendValue("namespace", srcConfig.GetString("namespace"), true)
-			srcHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", srcConfig.GetString("namespace")), true)
+			srcHelmValues.appendValue("namespace", srcConfig.GetString("general.namespace"), true)
+			srcHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", srcConfig.GetString("general.namespace")), true)
 			srcHelmValues.appendValue("is_source", "true", true)
 			srcHelmValues.appendValue("private_key", privateKey, true)
 			srcHelmValues.appendValue("public_key", publicKey, true)
@@ -108,9 +108,9 @@ var filesCmd = &cobra.Command{
 			var destHelmValues HelmValues
 			destDeploymentName := fmt.Sprintf("%s-dest", deploymentName)
 			destHelmValues.appendValue("name", destDeploymentName, true)
-			destHelmValues.appendValue("namespace", destConfig.GetString("namespace"), true)
+			destHelmValues.appendValue("namespace", destConfig.GetString("general.namespace"), true)
 			destHelmValues.appendValue("is_destination", "true", true)
-			destHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", destConfig.GetString("namespace")), true)
+			destHelmValues.appendValue("volume", fmt.Sprintf("%s-default-files-nfs", destConfig.GetString("general.namespace")), true)
 			destHelmValues.appendValue("private_key", privateKey, true)
 			destHelmValues.appendValue("public_key", publicKey, true)
 			color.Cyan("Starting destination rsync process...")
