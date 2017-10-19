@@ -95,7 +95,7 @@ func createSSLCert() {
 	if out, _ := util.ExecCmdChain("kubectl get secret tls-secret 2>&1 >/dev/null | grep 'not found'"); len(out) <= 0 {
 		return
 	}
-	hostname := projectConfig.GetString("environments.local.network.hostname")
+	hostname := envConfig.GetString("network.hostname")
 	color.Yellow("Generating self-signed HTTPS cert...")
 	util.ExecCmdChain(fmt.Sprintf("openssl req -x509 -newkey rsa:2048 -keyout argo-key.pem -out argo-cert.pem -days 365 -nodes -subj '/CN=%s'", hostname))
 	util.ExecCmdChain("kubectl create secret tls tls-secret --cert=argo-cert.pem --key=argo-key.pem")
@@ -139,7 +139,7 @@ func setImagePullSecret() {
 func addEtcHosts() {
 	if approve := util.GetApproval("Argo can add an /etc/hosts entry for this project for you, would you like to do this?"); approve {
 		color.Cyan("Adding/updating entry to /etc/hosts.  Will require sudo permissions...")
-		localAddress := projectConfig.GetString("environments.local.network.hostname")
+		localAddress := envConfig.GetString("network.hostname")
 		util.ExecCmdChain(fmt.Sprintf("sudo sed --in-place '/%s/d' /etc/hosts", localAddress))
 		util.ExecCmdChain(fmt.Sprintf("echo \"$(minikube ip) %s\" | sudo tee -a /etc/hosts", localAddress))
 	} else {
