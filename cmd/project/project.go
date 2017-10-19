@@ -36,7 +36,7 @@ var ProjectCmd = &cobra.Command{
 
 		// If minikube is not running and local environment is selected, ask user if they'd like us to start it
 		if projectConfig.GetString("environment") == "local" {
-			if out, _ := util.ExecCmdChain("minikube status | grep 'localkube: Running'"); len(out) <= 0  {
+			if out, _ := util.ExecCmdChain("minikube status | grep 'minikube: Running'"); len(out) <= 0  {
 				if approve := util.GetApproval("Minikube is not running, would you like to start it?"); approve {
 					components.StartCmd.Run(cmd, args)
 				} else {
@@ -92,7 +92,7 @@ func initProjectConfig() {
 
 	// The sub-command `sync` does not use an --environment flag.
 	// TODO - Ditch the --environment flag - MEA
-	if (projectConfig.IsSet("environment")) {
+	if (len(projectConfig.GetString("environment")) > 0) {
 		envConfig = setupEnvConfigViper(projectConfig.GetString("environment"))
 	} else {
 		if viper.GetBool("debug") {
